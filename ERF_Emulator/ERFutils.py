@@ -133,6 +133,23 @@ def mf_to_sf(data_id, m, var):
     
     return
 
+def calc_ensemble_variability(m_set):
+    piControl = {}
+    for m in m_set:
+        print(m)
+        # Load and convert piControl data to yearly
+        piControl[m] = xr.open_mfdataset(f'{path_to_cmip6_data}piControl/tas_Amon_{m}_piControl_r1i1p1f1.nc4', use_cftime=True, chunks = 1000000, parallel=True)
+        #piControl[m] = xr.open_mfdataset(f'{path_to_cmip6_data_clean}piControl/tas_Amon_{m}_piControl_r1i1p1f1.nc4', use_cftime=True, chunks = 1000000)
+        piControl[m] = monthly_to_annual(piControl[m])
+        piControl[m] = piControl[m].weighted(A).mean(dim = ['lat','lon'])
+        
+    piControl = concat_multirun(piControl,'model').mean(dim = 'model')
+    
+    # Average piControl over the entire simulation period
+    variability = piControl.std(dim = ['year'])
+    return variability.as_numpy()
+
+
 def calc_climatology(m, var):
     """
     Get the average climatology for a given variable and model.
@@ -378,7 +395,7 @@ def regrid_cmip(ds, ds_out):
     """
     
     attrs = ds.attrs
-    if True:
+    if False:
         regridder = xe.Regridder(ds, ds_out, "conservative")
         ds = regridder(ds) 
     else:
@@ -773,6 +790,8 @@ def plot_conv_meanGF(train_id, conv_id, conv_mean_ds, tas_CMIP, save_fig = False
     fig, ax = plt.subplots(figsize = [10,6])
     ax.plot(np.arange(1850,1850 + len(tas_CMIP['s'])), tas_CMIP.mean(dim = 'model').weighted(A).mean(dim = ['lat','lon'])['tas'], 
          label = 'Ensemble Mean', linewidth = 2, linestyle = '--')
+    #print(tas_CMIP.mean(dim = 'model').weighted(A).mean(dim = ['lat','lon'])['tas'])
+    #print(conv_mean_ds.sel(train_id = train_id))
     ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train_id), label = 'Emulator', linewidth = 2)
     
     ax.legend(fontsize = 16)
