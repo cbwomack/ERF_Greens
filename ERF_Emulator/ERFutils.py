@@ -30,8 +30,12 @@ import seaborn as sns
 import matplotlib as mpl
 import cmocean
 import cmocean.cm as cmo
+import matplotlib
 from matplotlib.gridspec import GridSpec
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as pe
+
+
 
 
 ########################### Path Definitions ###################################
@@ -636,7 +640,7 @@ def calc_tas_CMIP_set(tas_exp, tas_pictrl, model_set):
     
     return tas_CMIP_ds
 
-def convolve_exp(G_ds, RF_ds, model_dict, train_id, conv_mean = True):
+def convolve_exp(G_ds, RF_ds, model_dict, train_id, expmean = True):
     if conv_mean:
         GF = G_ds.weighted(A).mean(dim = ['lat','lon'])
     else:
@@ -788,20 +792,22 @@ def plot_conv(train_id, conv_id, conv_mean_ds, ds_dif, type_color, save_fig = Fa
 
 def plot_conv_meanGF(train_id, conv_id, conv_mean_ds, tas_CMIP, save_fig = False):
     fig, ax = plt.subplots(figsize = [10,6])
+    ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train_id), label = 'Emulator Ensemble Mean', linewidth = 3,color=present_colors['blue'],path_effects=[pe.Stroke(linewidth=3.25, foreground='k'), pe.Normal()])
     ax.plot(np.arange(1850,1850 + len(tas_CMIP['s'])), tas_CMIP.mean(dim = 'model').weighted(A).mean(dim = ['lat','lon'])['tas'], 
-         label = 'Ensemble Mean', linewidth = 2, linestyle = '--')
+         label = 'CMIP6 Ensemble Mean', linewidth = 3, linestyle = '--', color=present_colors['orange'],path_effects=[pe.Stroke(linewidth=3.25, foreground='k'), pe.Normal()])
     #print(tas_CMIP.mean(dim = 'model').weighted(A).mean(dim = ['lat','lon'])['tas'])
     #print(conv_mean_ds.sel(train_id = train_id))
-    ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train_id), label = 'Emulator', linewidth = 2)
     
-    ax.legend(fontsize = 16)
-    ax.set_xlabel('Year', fontsize = 16)
-    ax.set_ylabel('$\Delta \overline{T}$ ($\degree$C)', fontsize = 16)
-    ax.set_title(f'Predictor: {train_id}, Target: {conv_id}')
-    ax.tick_params(axis='both', which='major', labelsize=16)
+    ax.legend(fontsize = 18)
+    ax.set_xlabel('Year', fontsize = 20)
+    ax.set_ylabel('$\Delta \overline{T}$ ($\degree$C)', fontsize = 20)
+    ax.set_title(f'Global Mean Temperature Emulation\nPredictor: {train_id}, Target: {conv_id}',fontsize = 20)
+    ax.tick_params(axis='both', which='major', labelsize=18)
+    
+    fig.tight_layout()
     
     if save_fig:
-        plt.savefig(f'{path_to_figures}conv_global_{train_id}_{conv_id}_v1.pdf', bbox_inches = 'tight', dpi = 350)
+        plt.savefig(f'{path_to_figures}conv_global_{train_id}_{conv_id}_v2.pdf', bbox_inches = 'tight', dpi = 350)
         
     return
 
@@ -865,42 +871,57 @@ def plot_dif_map(conv_ds, ds_dif, plot_yr, yr_dif, conv_id, dif = True, save_fig
 def plot_dif_map_meanGF(conv_ds, tas_CMIP, plot_yr, yr_dif, conv_id, train_id, dif = True, save_fig = False):
     plot_yr = plot_yr - 1850
     
+    matplotlib.rcParams['mathtext.fontset'] = 'cm'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+    
     cmap = mpl.cm.RdBu_r
     fig, ax= plt.subplots(figsize = [10,6], subplot_kw = {'projection':ccrs.Robinson()}, constrained_layout = True)
-    
-    extremes = (-2, 2)
-    norm = plt.Normalize(*extremes)
 
     tas_CMIP = tas_CMIP.mean(dim = 'model')
     
     # Contours of difference
     if dif:
+        extremes = (-2, 2)
+        norm = plt.Normalize(*extremes)
         im = (conv_ds -  tas_CMIP['tas']).mean(dim = 'train_id').sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
                                                                                                                       cmap = cmap,
                                                                                                                       norm = norm,   
                                                                                                                       transform = ccrs.PlateCarree())
-    '''
+    
     else:
-        conv_ds.mean(dim = 'train_id').sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
-                                                                                                                  cmap = mpl.cm.Reds, extend = 'both', 
-                                                                                                                  add_colorbar = True,     
-                                                                                                                  transform = ccrs.PlateCarree(),
-                                                                                                                  cbar_kwargs = {'label':r'$\Delta \overline{T}$ ($\degree$C)'})
-    '''                                                                                                              
+        extremes = (0, 9)
+        norm = plt.Normalize(*extremes)
+        im = tas_CMIP['tas'].sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
+                                                                                                 cmap = mpl.cm.Reds,
+                                                                                                 norm = norm,
+                                                                                                 transform = ccrs.PlateCarree()) 
+        #im = conv_ds.mean(dim = 'train_id').sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
+        #                                                                                                          cmap = mpl.cm.Reds,     
+        #                                                                                                          transform = ccrs.PlateCarree()) 
     #if dif:
     #    ax.set_title(f'{conv_id}: Difference at {1850 + plot_yr} ($\pm {yr_dif}$) years', fontsize = 14)
     #else:
     #    ax.set_title(f'{conv_id}: Temperature Change Relative to 1850 at {1850 + plot_yr} ($\pm {yr_dif}$) years', fontsize = 14)
     
-    cb = fig.colorbar(im)
-    cb.remove()
+    #cb = fig.colorbar(im)
+    #cb.remove()
     
     ax.coastlines()
     cb = fig.colorbar(im, orientation="horizontal", pad=0.05, shrink=0.7, extend = 'both')
-    cb.set_label('$\degree$C', fontsize = 16)
+    cb.set_label('$\Delta T$ [$\degree$C]', fontsize = 20)
+    cb.ax.tick_params(labelsize=16)
+    
+    if dif:
+        ax.set_title(f'(Emulator - CMIP6) in {plot_yr + 1850} ($\pm {yr_dif}$ years)\nPredictor: {train_id}, Target: {conv_id}', fontsize = 20)
+    else:
+        ax.set_title(f'Temperature Change Relative to 1850 in {plot_yr + 1850} ($\pm {yr_dif}$ years)\nCMIP6 Scenario: {conv_id}', fontsize = 20)
+    #fig.tight_layout()
     
     if save_fig:
-        plt.savefig(f'{path_to_figures}conv_spatial_{train_id}_{conv_id}_{plot_yr}_v1.pdf', bbox_inches = 'tight', dpi = 350)
+        if dif:
+            plt.savefig(f'{path_to_figures}conv_spatial_dif_{train_id}_{conv_id}_{plot_yr}_v2.pdf', bbox_inches = 'tight', dpi = 350)
+        else:
+            plt.savefig(f'{path_to_figures}cmip_spatial_raw_{train_id}_{conv_id}_{plot_yr}_v2.pdf', bbox_inches = 'tight', dpi = 350)
         
     return
 
@@ -1100,3 +1121,6 @@ model_color = {'ACCESS':'pink',
                'CanESM5-1':'sienna',
                'MIROC':'purple',
                'NorESM':'blue'}
+
+present_colors = {'orange':'#FFAB3F',
+                  'blue':'#648efe'}
