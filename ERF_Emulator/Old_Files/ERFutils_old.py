@@ -35,15 +35,11 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.colors as mcolors
 import matplotlib.patheffects as pe
 
-
-########################### Matplotlib Definitions ###################################
-
+# Define matplotlib style and set everything to LaTeX font
 matplotlib.rcdefaults()
 plt.style.use('seaborn-v0_8-colorblind')
 matplotlib.rcParams['mathtext.fontset'] = 'cm'
 matplotlib.rcParams['font.family'] = 'STIXGeneral'
-prop_cycle = plt.rcParams['axes.prop_cycle']
-colors = prop_cycle.by_key()['color']
 
 ########################### Path Definitions ###################################
 
@@ -267,6 +263,39 @@ def monthly_to_annual(ds):
     
     return ds
 
+def create_multimodel_GF(RF, train_id, model_control_dict, model_train_dict, savgol = False, save_GF = False):
+    """
+    Creates Green's Functions from multiple models given a set of training data.
+    
+    Args:
+        RF: Radiative forcing (or variable to create GF from).
+        train_id: ID of the training run, e.g. 1pct-brch-1000PgC.
+        model_control_dict: Dictionary of models with piControl runs.
+        model_train_dict: Diction of models in training dataset.
+        save_GF: Whether or not to save out the resulting GF.
+        
+    Returns:
+        ds_control: Dataset with piControl data from all models.
+        ds_train: Dataset with training data from all models.
+        G_ds: Dataset with GFs for each model with the given training data.
+    """
+    
+    ds_control, ds_train, G = {}, {}, {}
+    for m in model_control_dict.keys():
+        if m not in model_train_dict: raise Exception(f'Control model, {m}, not in training dictionary.')
+        print(f'Diagnosing GF for {m}...')
+        ds_control[m], ds_train[m], G[m] = import_regrid_calc_deconv(f'{path_to_piControl}tas_Amon_{model_control_dict[m]}',
+                                                                                         f'{path_to_cmip6_data}{train_id}/tas_Amon_{model_train_dict[m]}',
+                                                                                         RF[train_id][m],
+                                                                                         ds_out, m, savgol)
+
+    G_ds = concat_multirun(G, 'model')
+    
+    if save_GF:
+        G_ds.to_netcdf(f'{path_to_ERF_outputs}/G_{train_id}_ERF_ds.nc4')
+    
+    return ds_control, ds_train, G_ds
+
 def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
     """
     Diagnoses multimodel mean GF from a given experiment. Assumes ERF and tas
@@ -352,7 +381,7 @@ def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
 
     # Save resultant Green's function
     if save_data:
-        G_ds.to_netcdf(f'{path_to_ERF_outputs}G_{train}_mean_ds.nc4')
+        G_ds.to_netcdf(f'{path_to_ERF_outputs}G_{train}_ds.nc4')
     
     return G_ds
 
@@ -411,9 +440,40 @@ def diagnose_mean_pattern(train, plot = True, save_data = False, save_fig = Fals
 
     # Save resultant pattern
     if save_data:
-        pattern.to_netcdf(f'{path_to_ERF_outputs}pattern_{train}_mean_ds.nc4')
+        pattern.to_netcdf(f'{path_to_ERF_outputs}pattern_{train}_all_ds.nc4')
     
     return pattern_ds
+
+def import_regrid_calc_deconv(input_signal, train_id, ds_out, m, savgol = False, regrid = True):
+    """
+    Imports the control run and pulse run for a CMIP6 model run, combines them on the date the pulse starts. 
+    Regrids it to the chosen grid size and calculates the Green's Function.
+    
+    Args:
+        input_signal: Variable to create GF from.
+        train_id: ID of the training run, e.g. 1pctCO2.
+        ds_out: Size of the grid you want, must have lat, lon, lat_b, lon_b.
+        m: Model name. naming convention for the models is MODELID.
+        regrid: True or False (auto to True).
+        
+    Returns:
+        ds_control: Control data.
+        ds_train: Training data.
+        G: Green's Function for a given experiment.
+    """
+    
+    control_path = f'{path_to_cmip6_data_clean}piControl/tas_Amon_{m}_piControl_r1i1p1f1.nc4'
+    train_path = f'{path_to_cmip6_data_clean}{train_id}/tas_Amon_{m}_{train_id}_r1i1p1f1.nc4'
+    
+    ds_control, ds_train = import_combine_train_control(control_path, train_path, m)
+    if regrid == True:
+        ds_control = regrid_cmip(ds_control, ds_out)
+        ds_train = regrid_cmip(ds_train, ds_out)
+        #input_signal = regrid_cmip(input_signal, ds_out)
+    
+    G = calc_greens_deconv(ds_control, ds_train, input_signal, m, savgol)
+    
+    return ds_control, ds_train, G
 
 def regrid_corners(ds):
     lat_corners = cfxr.bounds_to_vertices(ds.isel(time = 0)['lat_bnds'], "bnds", order=None)
@@ -495,7 +555,106 @@ def get_bounds(arr, gridSize):
     
     return bounds
 
-########################### CONVOLUTION ###################################
+def calc_pattern(train_id, m):
+    """
+    Calculate the climate pattern given a scenario. 
+    
+    Args:
+        train_id: Training run ID.
+        m: Model name.
+        
+    Returns:
+        pattern
+    """
+    
+    # Get temperature response as difference between training and control runs
+    temp_response = RFutils.remove_climatology(train_id, m, 'tas')
+    temp_response = RFutils.regrid_cmip(temp_response,ds_out)
+    global_temp = temp_response.weighted(A).mean(dim = ['lat','lon']).tas.values
+
+    # Have to create the patterns locally, stack data array
+    stacked_response = temp_response.stack(allpoints=['lat','lon'])
+    N_latlong = len(stacked_response['allpoints'].values)
+
+    # Convert to np arrays, xarray indexing is too slow
+    pattern_stacked = np.zeros((1,N_latlong))
+    stacked_response_np = stacked_response.tas.values
+
+    # Solve for spatially resolved pattern
+    for i in range(N_latlong):
+        stacked_response_local = stacked_response_np[:,i]
+        reg = LinearRegression().fit(global_temp.reshape(-1,1), stacked_response_local.reshape(-1,1))
+        pattern_stacked[0,i] = reg.coef_
+    
+    pattern = xr.Dataset(coords={'lon': ('lon', temp_response.lon.values),
+                        'lat': ('lat', temp_response.lat.values)})
+    pattern = pattern.stack(allpoints=['lat','lon'])
+    pattern['pattern'] = ('allpoints',pattern_stacked[0])
+    pattern = pattern.unstack('allpoints')
+        
+    return pattern
+
+def plot_mean_Greens(G_ds, train_id, overlay = True, save_fig = False):
+    
+    if overlay:
+        fig, ax = plt.subplots(figsize = [10,6])
+        mean_models = {}
+        
+    for m in G_ds.model:
+        #if str(m.model.values) == 'MIROC' or str(m.model.values) == 'CAMS':
+        #    continue
+        if overlay:
+            mean_global = G_ds.sel(model=m).weighted(A).mean(dim = ['lat','lon'])
+            mean_models[str(m.model.values)] = mean_global
+            #ax.plot(mean_global['__xarray_dataarray_variable__'],label=str(m.model.values))
+            ax.plot(mean_global,label=str(m.model.values))
+            ax.set_title(f'Global Mean GFs for {train_id}')
+            ax.set_xlabel('Years Since RF Pulse')
+            ax.set_ylabel('GF (K/(W/m^2))')
+            ax.legend()
+            
+        else:
+            fig, ax = plt.subplots()
+            ax.plot(G_ds.sel(model=m).weighted(A).mean(dim = ['lat','lon']))
+            ax.set_title(f'Global Mean GF for {m}')
+            ax.set_xlabel('Years Since RF Pulse')
+            ax.set_ylabel('GF (K/(W/m^2))')
+            
+            if save_fig:
+                plt.savefig(f'{path_to_figures}{train_id}/{m}_GF.png', bbox_inches = 'tight', dpi = 350)
+              
+    if overlay:
+        mean_model_ds = concat_multirun(mean_models,'model')
+        ax.plot(mean_model_ds.mean(dim = ['model']),label='Ensemble Mean',color='black')
+        ax.set_title(f'Global Mean GFs for {train_id}')
+        ax.set_xlabel('Years Since RF Pulse')
+        ax.set_ylabel('GF (K/(W/m^2))')
+        ax.legend()
+    
+    if save_fig:
+        if overlay:
+            plt.savefig(f'{path_to_figures}{train_id}/mean_GFs.png', bbox_inches = 'tight', dpi = 350)
+    
+    return
+
+def check_data(ds, train_id, single = False):
+    
+    for m in ds[train_id].keys():
+        if single:
+            ERF = ds
+        else:
+            ERF = ds[train_id][m]
+            
+        N_years = len(ERF['year'])
+        offsets = [i for i in range(0,-N_years,-1)]
+        input_matrix = diags(ERF.ERF.values,offsets=offsets,shape=(N_years,N_years),format='csr')
+        array_mat = input_matrix.toarray()
+        cond_num = LA.cond(array_mat)
+        print(f'Model: {m}, Condition Number: {cond_num}')
+        
+    return
+
+########################### CONVOLUTION AND COMPARISON ###################################
 
 def import_regrid_tas(model_dict,run_id):
     tas = {}
@@ -548,113 +707,54 @@ def calc_tas_CMIP_set(tas_exp, tas_pictrl, model_set):
     
     return tas_CMIP_ds
 
-def eval_GF(train_id, conv_all, plot, save_result, save_fig, verbose = True):
-    """
-    Evaluate the performance of a Green's function in terms of globally averaged
-    RMSE, MAE, and bias.
-    
-    Args:
-        train_id: Green's function chosen for evaluation.
-        conv_all: List of experiments used for convolution.
-        verbose: Whether or not to print the results.
-        
-    Returns:
-        RMSE_short: Short term RMSE results.
-        RMSE_long: Long term RMSE results.
-        MAE_short: Short term MAE results.
-        MAE_long: Long term MAE results.
-        bias_short: Short term bias results.
-        bias_long: Long term bias results.
-    """
+def convolve_exp(G_ds, RF_ds, model_dict, train_id, expmean = True):
+    if conv_mean:
+        GF = G_ds.weighted(A).mean(dim = ['lat','lon'])
+    else:
+        GF = G_ds
 
-    # Import Green's functions
-    G_ds_path = f'{path_to_ERF_outputs}GFs/G_{train_id}_mean_ds.nc4'
-    G_ds = xr.open_dataset(G_ds_path)['G[tas]']
-    G_ds.name = 'G[tas]'
-    G_ds = G_ds.rename({'year':'s'})
-
-    # Arrays for storing error statistics
-    RMSE_short, RMSE_long = [], []
-    MAE_short, MAE_long = [], []
-    bias_short, bias_long = [], []
-    
-    for conv_id in conv_all:
-        print(f'\tLoading {conv_id} experiment for convolution...')
-
-        # Import experimental ERF data
-        ERF_path = f'{path_to_ERF_outputs}ERF/ERF_{conv_id}_all_ds.nc4'
-        if 'ssp' in conv_id:
-            ERF_path_hist = f'{path_to_ERF_outputs}ERF/ERF_historical_all_ds.nc4'
-            ERF_ssp = xr.open_dataset(ERF_path)
-            ERF_hist = xr.open_dataset(ERF_path_hist)
-
-            ERF_ds = xr.concat([ERF_hist,ERF_ssp.assign_coords(year = range(165,250))],dim = 'year')
-
+    conv = {}
+    for m1 in model_dict.keys():
+        conv[m1] = {}
+        if conv_mean:
+            print(f'Convolving {m1} for Global Mean')
         else:
-            ERF_ds = xr.open_dataset(ERF_path)
+            print(f'Convolving {m1} Spatially')
+        for train in train_id:
+            # Relabeled realizations to simplify syntax
+            try:
+                m2 = m1.split('_')[0]
 
-        # Import experimental tas data
-        tas_CMIP_path = f'{path_to_ERF_outputs}tas/tas_CMIP_{conv_id}_all_ds.nc4'
-        tas_CMIP = xr.open_dataset(tas_CMIP_path) 
-
-        # Convolve ERF profile with Green's functions
-        conv_mean_ds = convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True)
-        conv_ds = convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = False)
-
-        # Save convolution outputs
-        if save_result:
-            conv_mean_ds.to_netcdf(f'{path_to_ERF_outputs}Global Mean Results/res_conv_global_{train_id}_{conv_id}_ds.nc4')
-            conv_ds.to_netcdf(f'{path_to_ERF_outputs}Spatial Results/res_conv_spatial_{train_id}_{conv_id}_ds.nc4')    
-
-        # Select short and long term time periods based on experiment
-        if 'ssp' in conv_id: # SSP experiments
-            start_yr1, plot_yr1, end_yr1 = 2040, 2050, 2060
-            start_yr2, plot_yr2, end_yr2 = 2080, 2090, 2100
-        elif 'hist' in conv_id: # Historical experiment
-            start_yr1, plot_yr1, end_yr1 = 1900, 1920, 1940
-            start_yr2, plot_yr2, end_yr2 = 1985, 2000, 2015
-        else: # 1pctCO2 experiment
-            start_yr1, plot_yr1, end_yr1 = 1940, 1950, 1960
-            start_yr2, plot_yr2, end_yr2 = 1980, 1990, 2000
-        
-        # Make plots for analysis, comment out lines depending on desired plots
-        if plot:
-            plot_ERF_profile(ERF_ds, conv_id, save_fig = False)
-            plot_conv_meanGF(train_id, conv_id, conv_mean_ds, tas_CMIP, save_fig = save_fig)
-            plot_dif_map_meanGF(conv_ds, tas_CMIP, plot_yr = plot_yr1, yr_dif = 10, conv_id = conv_id, train_id = train_id, dif = True, save_fig = save_fig)
-            plot_dif_map_meanGF(conv_ds, tas_CMIP, plot_yr = plot_yr2, yr_dif = 10, conv_id = conv_id, train_id = train_id, dif = True, save_fig = save_fig)
-
-        # Calculate and record error values
-        MSE1, RMSE1, MAE1, bias1 = calc_error_metrics(tas_CMIP, conv_ds, start_yr1, end_yr1, mean_GF = False)
-        RMSE_short.append(round(RMSE1,4))
-        MAE_short.append(round(float(MAE1),4))
-        bias_short.append(round(float(bias1),4))
-
-        MSE2, RMSE2, MAE2, bias2 = calc_error_metrics(tas_CMIP, conv_ds, start_yr2, end_yr2, mean_GF = False)
-        RMSE_long.append(round(RMSE2,4))
-        MAE_long.append(round(float(MAE2),4))
-        bias_long.append(round(float(bias2),4))
+            except:
+                m2 = m1
+                
+            # might need to add back: train_ids = train
+            if conv_mean:
+                conv[m1][train] = signal.convolve(np.array(GF.sel(model = m2, train_id = train).dropna(dim = 's')),
+                                                np.array(RF_ds.sel(model = m1)['RF']),'full')
+                conv[m1][train] = np_to_xr_mean(conv[m1][train], GF.sel(model = m2, train_id = train), RF_ds.sel(model = m1))
+                length = max(len(GF.dropna(dim = 's')['s']),len(np.array(RF_ds.sel(model = m1)['RF'])))
+                conv[m1][train] = conv[m1][train][:length]
+            
+            else:
+                conv[m1][train] = signal.convolve(np.array(GF.sel(model = m2, train_id = train).dropna(dim = 's')), 
+                                           np.array(RF_ds.sel(model = m1)['RF'])[~np.isnan(np.array(RF_ds.sel(model = m1)['RF']))][..., None, None],
+                                           'full')
+                conv[m1][train] = np_to_xr(conv[m1][train], GF.sel(model = m2, train_id = train), RF_ds.sel(model = m1))
     
-    # Print results
-    if verbose:
-        print('\nResults are shown in the following order:')
-        print(conv_all)
+    conv_dict = {}
+    for m in conv.keys():
+        conv_dict[m] = concat_multirun(conv[m],'train_id')
+    conv_ds = concat_multirun(conv_dict,'model')
 
-        print('\nMid-Century Stats:')
-        print(f'RMSE: {RMSE_short}')
-        print(f'MAE: {MAE_short}')
-        print(f'Bias: {bias_short}')
-
-        print('\nEnd-of-Century Stats:')
-        print(f'RMSE: {RMSE_long}')
-        print(f'MAE: {MAE_long}')
-        print(f'Bias: {bias_long}')
-    
-    return RMSE_short, RMSE_long, MAE_short, MAE_long, bias_short, bias_long
+    return conv_ds
 
 def convolve_exp_meanGF(G_ds, ERF_ds, train, conv_mean = True):
     if conv_mean:
         G_ds = G_ds.weighted(A).mean(dim = ['lat','lon'])
+        #GF = G_ds.mean(dim = ['model'])
+    #else:
+        #GF = G_ds.mean(dim = ['model'])
 
     GF = G_ds
     ERF_ds = ERF_ds.mean(dim = ['model'])
@@ -680,62 +780,96 @@ def convolve_exp_meanGF(G_ds, ERF_ds, train, conv_mean = True):
 
     return conv_ds
 
-######################## Plotting ###########################
+def convolve_exp_set(G_ds, RF_ds, model_set, train_id, conv_mean = True):
+    if conv_mean:
+        GF = G_ds.weighted(A).mean(dim = ['lat','lon'])
+    else:
+        GF = G_ds
 
-def plot_ERF_profile(ERF_ds, exp_id, save_fig = False):
-    """
-    Plots the ERF profile for a given experiment.
+    conv = {}
+    for m1 in model_set:
+        conv[m1] = {}
+        if conv_mean:
+            print(f'Convolving {m1} for Global Mean')
+        else:
+            print(f'Convolving {m1} Spatially')
+        for train in train_id:
+            m2 = 'NorESM-LM'
+            
+            # might need to add back: train_ids = train
+            if conv_mean:
+                print(m2)
+                conv[m1][train] = signal.convolve(np.array(GF.sel(train_id = train).dropna(dim = 's')),
+                                                np.array(RF_ds.sel(model = m1)['RF']),'full')
+                conv[m1][train] = np_to_xr_mean(conv[m1][train], GF.sel(train_id = train), RF_ds.sel(model = m1))
+                length = max(len(GF.dropna(dim = 's')['s']),len(np.array(RF_ds.sel(model = m1)['RF'])))
+                conv[m1][train] = conv[m1][train][:length]
+            
+            else:
+                conv[m1][train] = signal.convolve(np.array(GF.sel(train_id = train).dropna(dim = 's')), 
+                                           np.array(RF_ds.sel(model = m1)['RF'])[~np.isnan(np.array(RF_ds.sel(model = m1)['RF']))][..., None, None],
+                                           'full')
+                conv[m1][train] = np_to_xr(conv[m1][train], GF.sel(train_id = train), RF_ds.sel(model = m1))
+                
+    conv_dict = {}
+    for m in conv.keys():
+        conv_dict[m] = concat_multirun(conv[m],'train_id')
+    conv_ds = concat_multirun(conv_dict,'model')
+
+    return conv_ds
     
-    Args:
-        ERF_ds: Dataset of ERF data.
-        conv_id: Experiment ID the ERF profile is taken from.
-        save_fig: Whether or not to save the figure.
-        
-    Returns:
-        None.
-    """
-    
+def plot_ERF_profile(ERF_ds, conv_id, model_color, save_fig = False):
     fig, ax = plt.subplots(figsize = [10,6])
     for m in ERF_ds.model:
-        ax.plot(ERF_ds['year'],ERF_ds.sel(model = m)['ERF'], alpha = .8, label = f'{m.values}')
+        ax.plot(ERF_ds['year'],ERF_ds.sel(model = m)['ERF'], alpha = .8, label = f'{m.values}')#, color = model_color[str(m.values)])
     ax.plot(ERF_ds['year'],ERF_ds.mean(dim = 'model')['ERF'], color = 'k', label = f'Ensemble Mean')
     
-    ax.legend(fontsize = 14)
-    ax.set_xlabel('Year', fontsize = 20)
-    ax.set_ylabel('Wm$^{-2}$', fontsize = 20)
-    ax.set_title(f'{conv_id_cap[exp_id]} $F$ Profile', fontsize = 20)
-    ax.tick_params(axis='both', which='major', labelsize=18)
+    ax.legend()
+    ax.set_xlabel('Year', fontsize = 14)
+    ax.set_ylabel('$W/m^2$', fontsize = 14)
+    ax.set_title(f'{conv_id} $F$ Profile')
     
     if save_fig:
-        plt.savefig(f'{path_to_figures}{conv_id}/ERF_profile_{conv_id}.pdf', bbox_inches = 'tight', dpi = 350)
+        plt.savefig(f'{path_to_figures}{conv_id}/F_profiles_{conv_id}_placeholder.pdf', bbox_inches = 'tight', dpi = 350)
+        
+def plot_conv(train_id, conv_id, conv_mean_ds, ds_dif, type_color, save_fig = False):
+    
+    fig, ax = plt.subplots(figsize = [10,6])
+    # Might need to add back in model weights, train_type
+    for train in train_id:
+        #ax.plot(conv_mean_ds.mean(dim = 'model').sel(train_id = train), label = names[train], linestyle = ':')
+        
+        for m in conv_mean_ds.model:
+            name = str(m.values)
+            ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train, model = m), label = name, linestyle = ':')#,color = model_color[name])
+        
+    ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.mean(dim = ['model', 'train_id']), label = f'Emulator', color = type_color['all'], linestyle = '--')
+    ax.plot(np.arange(1850,1850 + len(ds_dif['s'])), ds_dif.mean(dim = 'model').weighted(A).mean(dim = ['lat','lon'])['tas'], 
+         label = 'Ensemble Mean', color = type_color['model'])
+    
+    ax.legend()
+    ax.set_xlabel('Years', fontsize = 14)
+    ax.set_ylabel('$\Delta$T ($\degree$C)', fontsize = 14)
+    ax.set_title(f'{train} Convolution with {conv_id}')
+    
+    if save_fig:
+        plt.savefig(f'{path_to_figures}{conv_id}/global_conv_{conv_id}_placeholder.png', bbox_inches = 'tight', dpi = 350)
         
     return
 
-def plot_conv_meanGF(train_id, conv_id, conv_mean_ds, tas_CMIP, sens = False, conv_mean_ds_plu10 = None, conv_mean_ds_min10 = None, save_fig = False):
-    """
-    Plots the emulated global mean temperature for a given experiment.
+def plot_conv_meanGF(train_id, conv_id, conv_mean_ds, tas_CMIP, save_fig = False):
+    conv_id_cap = {'1pctCO2':'1pctCO2',
+               'ssp126':'SSP126',
+               'ssp245':'SSP245',
+               'ssp370':'SSP370',
+               'ssp585':'SSP585'}
     
-    Args:
-        train_id: Experiment ID of the training dataset.
-        conv_id: Experiment ID of the test dataset being convolved with.
-        conv_mean_ds: Dataset containing the results of convolution.
-        tas_CMIP: Dataset containing ground truth near surface air temperature for comparison.
-        sens: Whether or not the data comes from a sensitivity analysis.
-        conv_mean_ds_plu10: Dataset containing the results of convolution with a +10% \lambda.
-        conv_mean_ds_min10: Dataset containing the results of convolution with a -10% \lambda.
-        save_fig: Whether or not to save the figure.
-        
-    Returns:
-        None.
-    """
+    plt.style.use('seaborn-v0_8-colorblind')
+    prop_cycle = plt.rcParams['axes.prop_cycle']
+    colors = prop_cycle.by_key()['color']
     
-    fig, ax = plt.subplots(figsize = [10,6])
-    
-    ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train_id), label = 'Emulator Ensemble Mean',color=colors[0],linewidth = 3)
-    
-    if sens:
-        ax.fill_between(conv_mean_ds['s'] + 1850, conv_mean_ds_min10.sel(train_id = train_id), conv_mean_ds_plu10.sel(train_id = train_id),color=colors[0],alpha=0.5)
-        
+    fig, ax = plt.subplots(figsize = [8,6])
+    ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train_id), label = 'Emulator Ensemble Mean', linewidth = 3)
     ax.plot(np.arange(1850,1850 + len(tas_CMIP['s'])), tas_CMIP.mean(dim = 'model').weighted(A).mean(dim = ['lat','lon'])['tas'], 
          label = 'CMIP6 Ensemble Mean', linewidth = 3, linestyle = '--',color=colors[2])
     
@@ -749,14 +883,16 @@ def plot_conv_meanGF(train_id, conv_id, conv_mean_ds, tas_CMIP, sens = False, co
     fig.tight_layout()
     
     if save_fig:
-        if sens:
-            plt.savefig(f'{path_to_figures}conv_global_{train_id}_{conv_id}.pdf', bbox_inches = 'tight', dpi = 350)
-        else:
-            plt.savefig(f'{path_to_figures}conv_global_sens_{train_id}_{conv_id}.pdf', bbox_inches = 'tight', dpi = 350)
+        plt.savefig(f'{path_to_figures}conv_global_{train_id}_{conv_id}_v3.pdf', bbox_inches = 'tight', dpi = 350)
         
     return
 
 def plot_conv_meanGF_sens(train_id, conv_id, conv_mean_ds, conv_mean_ds_plu10, conv_mean_ds_min10, tas_CMIP, save_fig = False):
+    conv_id_cap = {'1pctCO2':'1pctCO2',
+               'ssp126':'SSP126',
+               'ssp245':'SSP245',
+               'ssp370':'SSP370',
+               'ssp585':'SSP585'}
     
     fig, ax = plt.subplots(figsize = [10,6])
     ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train_id), label = 'Emulator Ensemble Mean', linewidth = 3,color=present_colors['blue'],path_effects=[pe.Stroke(linewidth=3.25, foreground='k'), pe.Normal()])
@@ -770,16 +906,82 @@ def plot_conv_meanGF_sens(train_id, conv_id, conv_mean_ds, conv_mean_ds_plu10, c
     ax.set_title(f'Global Mean Temperature Emulation\nPredictor: {train_id}, Target: {conv_id_cap[conv_id]}',fontsize = 20)
     ax.tick_params(axis='both', which='major', labelsize=18)
     
-    plt.grid(True)
     fig.tight_layout()
     
     if save_fig:
-        plt.savefig(f'{path_to_figures}conv_global_{train_id}_{conv_id}_sens.pdf', bbox_inches = 'tight', dpi = 350)
+        plt.savefig(f'{path_to_figures}conv_global_{train_id}_{conv_id}_sens_v1.pdf', bbox_inches = 'tight', dpi = 350)
         
     return
 
-def plot_dif_map_meanGF(conv_ds, tas_CMIP, plot_yr, yr_dif, conv_id, train_id, dif = True, save_fig = False):   
+def plot_conv_enROADS(train_id, conv_id, conv_mean_ds, tas_combined, type_color, save_fig = False):
+    fig,ax = plt.subplots(figsize = [10,6])
+    for train in train_id:
+            #ax.plot(conv_mean_ds.mean(dim = 'model').sel(train_id = train), label = names[train], color = type_color[train], linestyle = ':')
+            
+            for m in conv_mean_ds.model:
+                name = str(m.values)
+                ax.plot(conv_mean_ds['s'] + 1850, conv_mean_ds.sel(train_id = train, model = m), label = name, linestyle = ':')
+
+    ax.plot(conv_mean_ds['s'] + 1850,conv_mean_ds.mean(dim = ['model', 'train_id']), label = f'Emulator', color = type_color['all'], linestyle = '--')
+    ax.plot(np.arange(1850,1850 + len(tas_combined[name]['year'])), tas_combined[name]['tas'], label = 'EnROADS', color = type_color['model'])
+    
+    ax.legend()
+    ax.set_xlabel('Years', fontsize = 14)
+    ax.set_ylabel('$\Delta$T ($\degree$C)', fontsize = 14)
+    ax.set_title(f'{conv_id} Convolution with {train}')
+    if save_fig:
+        plt.savefig(f'{path_to_figures}{conv_id}/global_conv_{conv_id}_placeholder.png', bbox_inches = 'tight', dpi = 350)
+    
+    return
+        
+def plot_dif_map(conv_ds, ds_dif, plot_yr, yr_dif, conv_id, dif = True, save_fig = False):
     plot_yr = plot_yr - 1850
+    
+    cmap = mpl.cm.RdBu_r
+    #levels = [-2,-1.75,-1.5,-1.25,-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1,1.25,1.5,1.75,2.0]
+    levels = np.linspace(-3.75,3.75,num = 2*8 + 1)
+    vmin = -2
+    vmax = 2
+    fig, ax= plt.subplots(figsize = [10,6], subplot_kw = {'projection':ccrs.PlateCarree()}, constrained_layout = True)
+
+    # Contours of difference
+    if dif:
+        (conv_ds -  ds_dif['tas']).mean(dim = 'model').mean(dim = 'train_id').sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
+                                                                                                                      cmap = cmap,
+                                                                                                                      levels = levels,
+                                                                                                                      extend = 'both', 
+                                                                                                                      add_colorbar = True,     
+                                                                                                                      transform = ccrs.PlateCarree(),
+                                                                                                                      cbar_kwargs = {'label':r'$\Delta \overline{T}$ ($\degree$C)'})
+    else:
+        conv_ds.mean(dim = 'model').mean(dim = 'train_id').sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
+                                                                                                                  cmap = mpl.cm.Reds, extend = 'both', 
+                                                                                                                  add_colorbar = True,     
+                                                                                                                  transform = ccrs.PlateCarree(),
+                                                                                                                  cbar_kwargs = {'label':r'$\Delta \overline{T}$ ($\degree$C)'})
+    if dif:
+        ax.set_title(f'{conv_id}: Difference at {1850 + plot_yr} ($\pm {yr_dif}$) years', fontsize = 14)
+    else:
+        ax.set_title(f'{conv_id}: Temperature Change Relative to 1850 at {1850 + plot_yr} ($\pm {yr_dif}$) years', fontsize = 14)
+    ax.coastlines()
+    
+    if save_fig:
+        plt.savefig(f'{path_to_figures}{conv_id}/spatial_dif_{conv_id}_placeholder.png', bbox_inches = 'tight', dpi = 350)
+        
+    return
+
+def plot_dif_map_meanGF(conv_ds, tas_CMIP, plot_yr, yr_dif, conv_id, train_id, dif = True, save_fig = False):
+    conv_id_cap = {'1pctCO2':'1pctCO2',
+               'ssp126':'SSP126',
+               'ssp245':'SSP245',
+               'ssp370':'SSP370',
+               'ssp585':'SSP585'}
+    
+    plot_yr = plot_yr - 1850
+    
+    matplotlib.rcParams['mathtext.fontset'] = 'cm'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+    
     cmap = mpl.cm.RdBu_r
     fig, ax= plt.subplots(figsize = [10,6], subplot_kw = {'projection':ccrs.Robinson()}, constrained_layout = True)
 
@@ -801,6 +1003,16 @@ def plot_dif_map_meanGF(conv_ds, tas_CMIP, plot_yr, yr_dif, conv_id, train_id, d
                                                                                                  cmap = mpl.cm.Reds,
                                                                                                  norm = norm,
                                                                                                  transform = ccrs.PlateCarree()) 
+        #im = conv_ds.mean(dim = 'train_id').sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's').plot(ax = ax, 
+        #                                                                                                          cmap = mpl.cm.Reds,     
+        #                                                                                                          transform = ccrs.PlateCarree()) 
+    #if dif:
+    #    ax.set_title(f'{conv_id}: Difference at {1850 + plot_yr} ($\pm {yr_dif}$) years', fontsize = 14)
+    #else:
+    #    ax.set_title(f'{conv_id}: Temperature Change Relative to 1850 at {1850 + plot_yr} ($\pm {yr_dif}$) years', fontsize = 14)
+    
+    #cb = fig.colorbar(im)
+    #cb.remove()
     
     ax.coastlines()
     cb = fig.colorbar(im, orientation="horizontal", pad=0.05, shrink=0.7, extend = 'both')
@@ -863,60 +1075,33 @@ def plot_pattern(pattern_ds, train_id, test_id = None, tas_CMIP = None, plot_yr 
         
     return #(pattern_ds).sel(s = slice(plot_yr-yr_dif, plot_yr+yr_dif)).mean(dim = 's')
 
-######################## Error Metrics ###########################
-
-def calc_error_metrics(truth, emulator, start_year, end_year, mean_GF = True, pattern = False):
-    """
-    Function to calculate RMSE, MAE, and bias given a ground truth dataset and emulator dataset.
-    
-    Args:
-        truth: Ground truth dataset.
-        emulator: Emulator dataset.
-        start_year: Year in which to begin comparison.
-        end_year: Year in which to end comparison.
-        mean_GF: Whether or not to average the emulator results over all models.
-        pattern: Whether or not the comparison is made relative to a pattern scaling emulator.
-        
-    Returns:
-        MSE: Mean square error.
-        RMSE: Root mean square error.
-        MAE: Mean absolute error.
-        bias: Bias.
-    """
-    
-    # Datasets are organized starting at zero rather than 1850
+def calc_error_metrics(truth, emulator, start_year, end_year, mean_GF = False, pattern = False):
     slice_start = start_year - 1850
     slice_end = end_year - 1850
     
-    # Average CMIP ground truth over all models
     truth = truth.mean(dim = 'model')
     
-    # Get emulator data into correct format
     if mean_GF and pattern == False:
         emulator = emulator.mean(dim = 'model').mean(dim = 'train_id').sel(s = slice(min(truth.s),max(truth.s)))
     elif pattern == False:
         emulator = emulator.mean(dim = 'train_id').sel(s = slice(min(truth.s),max(truth.s)))
     
-    # Ensure time dimensions line up for both datasets
     truth = truth.sel(s = slice(slice_start,slice_end))
     emulator = emulator.sel(s = slice(slice_start,slice_end))
     
-    # Calculate RMSE
     if pattern:
         MSE = np.square(np.subtract(truth['tas'],emulator['tas'])).weighted(A).mean(dim = ['lat','lon']).mean(dim = ['s'])
     else:
         MSE = np.square(np.subtract(truth['tas'],emulator)).weighted(A).mean(dim = ['lat','lon']).mean(dim = ['s'])
     RMSE = math.sqrt(MSE)
     
-    # Calculate MAE
     if mean_GF and pattern == False:
         MAE = np.abs(np.subtract(truth['tas'],emulator)).weighted(A).mean(dim = ['lat','lon']).mean(dim = ['s']).mean(dim = ['model'])
     elif pattern == False:
         MAE = np.abs(np.subtract(truth['tas'],emulator)).weighted(A).mean(dim = ['lat','lon']).mean(dim = ['s'])
     else:
         MAE = np.abs(np.subtract(truth['tas'],emulator['tas'])).weighted(A).mean(dim = ['lat','lon']).mean(dim = ['s'])
-    
-    # Calculate bias
+        
     if pattern:
         bias = np.subtract(emulator['tas'],truth['tas']).weighted(A).mean(dim = ['lat','lon']).mean(dim = ['s'])
     else:
@@ -924,114 +1109,20 @@ def calc_error_metrics(truth, emulator, start_year, end_year, mean_GF = True, pa
     
     return MSE.values, RMSE, MAE.values, bias.values
 
-def calc_area_error(truth_path, emulator_path, start_year, end_year):
-    """
-    Function to calculate relative biases by the percent coverage of the Earth's surface area.
-    This function is NOT optimized and is very slow, could be improved significantly.
-    
-    Args:
-        truth_path: Path to ground truth dataset.
-        emulator_path: Path to emulator dataset.
-        start_year: Year in which to begin comparison.
-        end_year: Year in which to end comparison.
-        
-    Returns:
-        area_pct: List corresponding to the pct area coverage by each level of relative bias.
-        bins: Edges of each bin for the histogram calculation.
-        mn: Mean of relative biases.
-        std: Standard deviation of relative biases.
-    """
-
-    # Open ground truth dataset
-    truth = xr.open_dataset(truth_path) 
-
-    # Different datastructures for pattern scaling vs. GFs
-    if 'patt' in emulator_path:
-        emulator = xr.open_dataset(emulator_path)
-    else:
-        emulator = xr.open_dataset(emulator_path)['__xarray_dataarray_variable__']
-        emulator.name = 'tas'
-    
-    # Shift time
-    slice_start = start_year - 1850
-    slice_end = end_year - 1850
-    
-    # Average ground truth by model and ensure times line up
+def calc_error_metrics_EnROADS(truth, emulator):
     truth = truth.mean(dim = 'model')
-    truth = truth.sel(s = slice(slice_start,slice_end))    
+    truth = truth.rename({'year':'s'})
+    emulator = emulator.mean(dim = 'model').mean(dim = 'train_id')
+    emulator['s'] = emulator['s'] + 1850
     
-    # Correct emulator data, dataset was setup for multiple training runs
-    if 'conv' in emulator_path:
-        emulator = emulator.mean(dim = 'train_id')
+    RMSE = np.square(truth['tas'] - emulator)
+    RMSE = RMSE.mean(dim = ['s'])**(-1/2)
     
-    # Ensure emulator times line up
-    emulator = emulator.sel(s = slice(slice_start,slice_end))
+    MAE = np.abs(truth['tas'] - emulator).mean(dim = ['s'])
     
-    # For each grid point, calculate % error from truth
-    pct_error_spatial = np.divide(np.subtract(emulator,truth['tas']),truth['tas']).mean(dim = 's')
-
-    # We have a few grid cells bugged in ssp126 when performing this operation, they vary between the short and long term
-    # Convert them to NaN 
-    if 'ssp126' in truth_path and '1pctCO2' in emulator_path and start_year == 2040:
-        pct_error_spatial.loc[{'lat': -62.5, 'lon': 153}] = np.nan
-    elif 'ssp126' in truth_path and '1pctCO2' in emulator_path and start_year == 2080:
-        pct_error_spatial = pct_error_spatial.where(pct_error_spatial > -10, np.nan)
-        pct_error_spatial = pct_error_spatial.where(pct_error_spatial < 10, np.nan)
-   
-    # Calculate mean and standard deviation of relative biases
-    mn = pct_error_spatial.weighted(A).mean(dim = ['lat','lon'])
-    std = pct_error_spatial.weighted(A).std(dim = ['lat','lon'])
+    bias = (emulator - truth['tas']).mean(dim = ['s'])
     
-    # Stack points for later calculation
-    pct_error_stacked = pct_error_spatial.stack(allpoints=['lat','lon'])
-    
-    # Create dataset of total area
-    total_area = xr.DataArray(np.ones((len(truth.lon.values),len(truth.lat.values))),
-                              coords={'lon': ('lon', truth.lon.values),
-                              'lat': ('lat', truth.lat.values)})
-    total_area.to_dataset(name = 'area')
-
-    # A contains surface areas for all grid cells, allows us to compute surface area at a given 
-    # level of error
-    area_stack = A.stack(allpoints=['lat','lon'])
-
-    # Create histogram of error by area on the planet 
-    area_pct = []
-    n_bins = 100
-    if 'patt' in emulator_path:
-        counts, bins = np.histogram(pct_error_stacked.tas.values, range = (-0.25,0.25), bins = n_bins)
-    else:
-        counts, bins = np.histogram(pct_error_stacked.values, range = (-0.25,0.25), bins = n_bins)
-    seen = set()
-    for i in range(n_bins):
-        bin_l = bins[i]
-        bin_r = bins[i+1]
-        area_count = 0
-        for j in range(len(pct_error_stacked['allpoints'].values)):
-            if j in seen:
-                continue
-
-            if 'patt' in emulator_path:
-                test_val = pct_error_stacked.tas.values[j]
-            else:
-                test_val = pct_error_stacked.values[j]
-
-            if bin_l <= test_val <= bin_r:
-                area_count += area_stack[j]
-                seen.add(j)
-
-        area_pct.append(area_count)
-        
-    # Scale each bin by the total surface area of the Earth
-    surf_earth = sum(sum(A))
-    for i in range(n_bins):
-        if type(area_pct[i]) is int:
-            area_pct[i] = area_pct[i]/surf_earth
-        else:
-            area_pct[i] = area_pct[i].values/surf_earth
-    
-    return area_pct, bins, mn, std
-
+    return RMSE.values, MAE.values, bias.values
 
 ### Define output grid size
 ds_out = xr.Dataset(
@@ -1128,44 +1219,16 @@ model_set = set(['ACCESS-CM2',
 
 model_test_set = set(['MIROC6','ACCESS-ESM1-5','CAMS-CSM1-0'])
 
-conv_id_cap = {'1pctCO2':'1pctCO2',
-               'ssp126':'SSP126',
-               'ssp245':'SSP245',
-               'ssp370':'SSP370',
-               'ssp585':'SSP585'}
+################## Colors for Plotting ######################
 
-######################## Deprecated Functions ###########################
+type_color = {'model':'maroon', 'all':'darkcyan'} 
 
-def add_hist_ssp(hist,ssp):
-    # In the case of tas data
-    if type(hist) == dict:
-        ds = {}
-        for m in hist.keys():
-            ds[m] = xr.concat([hist[m],ssp[m]],dim = 'time')
-    
-    # In the case of ERF data
-    else:
-        ssp = ssp.assign_coords({'year':[int(i) for i in range(165,165+85)]})
-        ds = xr.concat([hist,ssp],dim = 'year')
-        
-    """
-    # Import the file if it exists
-    if os.path.isfile(tas_CMIP_path):
-        tas_CMIP = xr.open_dataset(tas_CMIP_path) 
+model_color = {'ACCESS':'pink',
+               'CAMS':'darkgreen',
+               'CanESM5':'orange',
+               'CanESM5-1':'sienna',
+               'MIROC':'purple',
+               'NorESM':'blue'}
 
-        # Otherwise create it
-        else:
-            tas_piControl = ERFutils.import_regrid_tas_set(model_set, 'piControl')
-            if 'ssp' in conv:
-                tas_hist = ERFutils.import_regrid_tas_set(model_set, 'historical')
-                tas_ssp = ERFutils.import_regrid_tas_set(model_set, conv)
-                tas_exp = add_hist_ssp(tas_hist,tas_ssp)
-
-            else:
-                tas_exp = ERFutils.import_regrid_tas_set(model_set, conv)
-
-            tas_CMIP = ERFutils.calc_tas_CMIP_set(tas_exp, tas_piControl, model_set)
-            tas_CMIP = tas_CMIP.as_numpy()
-            tas_CMIP.to_netcdf(f'{output_path}tas/tas_CMIP_{conv}_all_ds.nc4')
-    """
-    return ds
+present_colors = {'orange':'#FFAB3F',
+                  'blue':'#648efe'}
