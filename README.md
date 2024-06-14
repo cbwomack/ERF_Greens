@@ -2,7 +2,7 @@
 Calculates and evaluates the performance of spatially resolved temperature response functions (Green's functions) based on mapping ERF to temperature. <a href="https://doi.org/10.5194/egusphere-egu24-18412">The EGU abstract describing the overall methodology can be found here.</a>
 
 # Usage
-## Jupyter Notebooks
+## Jupyter Notebooks and Code
 All code for training and running the emulators is written in python, specifically within the Jupyter notebooks included in this repo. This repo requires a number of packages to function properly, and the included environment.yml file contains all necessary packages to get up and running. <a href="https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment">See this tutorial for instructions on loading an environment from a .yml.</a>
 
 Notebooks are sorted numerically as:
@@ -10,6 +10,8 @@ Notebooks are sorted numerically as:
 2. Evaluation - evaluates emulator performance against CMIP6 scenarios and performs sensitivity analysis.
 3. Application - applies emulator to the FaIR calibrated, constrained ensemble of projections.
 4. Plotting - creates plots for paper describing this emulator.
+
+<b>All Jupyter notebooks require ERFutils.py to function.</b> This file contains a suite of helper functions which include CMIP6 data regridding, emulator training, emulator evaluation, etc.
 
 ## File Structure
 This repository is broken into several subfolders containing the data necessary for emulator training, as well as some of the outputs from actually running the emulator. 
