@@ -33,8 +33,8 @@ matplotlib.rcParams['font.family'] = 'STIXGeneral'
 
 ########################### Path Definitions ###################################
 
-path_to_cmip6_data_local = '../../EnROADS_CO2_Greens/cmip6_data/'
-path_to_cmip6_data = path_to_cmip6_data_local
+path_to_cmip6_data_local = 'path/to/cmip6_data/'
+path_to_cmip6_data = 'path/to/remote/cmip6_data/'
 path_to_piControl = f'{path_to_cmip6_data}piControl/'
 path_to_ERF_outputs = '../ERF_Outputs/'
 path_to_figures = f'{path_to_ERF_outputs}Figures/'
