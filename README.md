@@ -3,22 +3,28 @@ Calculates and evaluates the performance of spatially resolved temperature respo
 
 # Usage
 ## Jupyter Notebooks and Code
-All code for training and running the emulators is written in python, specifically within the Jupyter notebooks included in this repo. This repo requires a number of packages to function properly, and the included environment.yml file contains all necessary packages to get up and running. <a href="https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment">See this tutorial for instructions on loading an environment from a .yml.</a>
+All code for training and running the emulators is written in python, specifically within the Jupyter notebooks included in this repo. This repo requires a number of packages to function properly, and the included environment file (ERF_Greens.yml) contains all necessary packages to get up and running. <a href="https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment">See this tutorial for instructions on loading an environment from a .yml.</a>
 
-Notebooks are sorted numerically as:
-1. Training - trains emulators from CMIP6 data.
-2. Evaluation - evaluates emulator performance against CMIP6 scenarios and performs sensitivity analysis.
-3. Application - applies emulator to the FaIR calibrated, constrained ensemble of projections.
-4. Plotting - creates plots for paper describing this emulator.
+Notebooks are sorted numerically as:<br>
+<ol start="0">
+  <li>Preprocessing - preprocesses CMIP6 data if beginning from raw data. Requires download of CMIP6 data separate from this repo.</li>
+  <li>Training - trains emulators from CMIP6 data.</li>
+  <li>Evaluation - evaluates emulator performance against CMIP6 scenarios and performs sensitivity analysis.</li>
+  <li>Plotting - creates plots for paper describing this emulator.</li>
+  <li>Application - applies emulator to the FaIR calibrated, constrained ensemble of projections.</li>
+</ol>
 
 <b>All Jupyter notebooks require ERFutils.py to function.</b> This file contains a suite of helper functions which include CMIP6 data regridding, emulator training, emulator evaluation, etc.
 
 ## File Structure
 This repository is broken into several subfolders containing the data necessary for emulator training, as well as some of the outputs from actually running the emulator. 
 
-<b>CMIP6_ERF_Data</b> - contains ERF data from the experiments and models listed below. Required for Green's function emulator.<br>
-<b>CMIP6_tas_Data</b> - contains tas data from the experiments and models listed below. Required for Green's function emulator and pattern scaling.<br>
-<b>FaIR_Data</b> - contains data required for FaIR ensemble generation.
+<b>ERF_Emulator</b> - contains all functions necessary to diagnose GFs and run emulator.<br>
+<b>ERF_Outputs</b> - contains output data, including processed ERF profiles, Green's functions, and patterns.<br>
+<b>FaIR_Data</b> - contains data required for FaIR ensemble generation
+
+<b>The code requires the subfolder 'ERF_Outputs/tas' to function properly.</b> <br>
+This folder is roughly 5 Gb, and as such is too large to store in this repo, <a href="https://www.dropbox.com/scl/fo/j3lj5r3ikeyw34p4h705p/ADtk0ib2HcW0JV7BAOn9rBs?rlkey=cuozzzik7y0vtj9ecdwv3yiat&dl=0">but you can find it on my Dropbox</a>. Otherwise, you can manually preprocess the raw CMIP6 tas data yourself using the provided scripts and create the folder locally.
 
 <a href="https://aims2.llnl.gov/search/cmip6/">Raw CMIP6 data can instead be downloaded from this link</a>, but this requires significant preprocessing prior to usage with our framework. All data is stored using the netcdf package. Preprocessing scripts are included, and the general methodology for preprocessing is as follows.
 1. For each model and variable, open all files (recorded monthly) and average them to yearly values. Ensure all data begins at year zero (e.g. transform from 1850 to 0).
