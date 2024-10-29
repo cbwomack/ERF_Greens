@@ -5,7 +5,7 @@ import cftime
 import dask
 import xarrayutils
 import cartopy.crs as ccrs
-import xesmf as xe
+#import xesmf as xe
 import scipy.signal as signal
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve_triangular
@@ -15,8 +15,6 @@ import os
 import copy
 import seaborn as sns
 import matplotlib as mpl
-import cmocean
-import cmocean.cm as cmo
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -247,12 +245,8 @@ def regrid_cmip(ds, ds_out):
     """
     
     attrs = ds.attrs
-    if False:
-        regridder = xe.Regridder(ds, ds_out, "conservative")
-        ds = regridder(ds) 
-    else:
-        regridder = xe.Regridder(get_bounds(ds, 1.0), get_bounds(ds_out, 1.0), 'conservative')
-        ds = regridder(ds)
+    #regridder = xe.Regridder(get_bounds(ds, 1.0), get_bounds(ds_out, 1.0), 'conservative')
+    ds = regridder(ds)
     
     ds.attrs = attrs
     
