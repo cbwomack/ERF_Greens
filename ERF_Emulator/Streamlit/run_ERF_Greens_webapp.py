@@ -25,6 +25,11 @@ data_path = 'ERF_Emulator/Streamlit/'
 with open(f'{data_path}A.pickle', 'rb') as f:
     A = pkl.load(f)
 
+SSP_labels = {'SSP126':'Sustainability',
+              'SSP245':'Middle of the Road',
+              'SSP370':'Regional Rivalry',
+              'SSP585':'Fossil-fueled Development'}
+
 def load_data_replot():
 
     # Only required on first run, load the Green's function dataset
@@ -176,7 +181,8 @@ if __name__ == "__main__":
     """)
 
     st.write(f"""
-    #### Select year for temperature projection:
+    #### Select year and scenario for temperature projection:
+    Scenarios are ordered by increasing end-of-century warming and descriptions of each scenario can be found at https://en.wikipedia.org/wiki/Shared_Socioeconomic_Pathways. 
     """)
 
     # Create a slider to retrieve input year selection
@@ -207,11 +213,11 @@ if __name__ == "__main__":
         if st.button("SSP585", on_click=clicked, args=[4]):
             st.session_state['scenario'] = 'SSP585'
 
-    st.write(f"#### Selected Scenario: {st.session_state['scenario']}")
+    st.write(f"#### Selected Scenario: {st.session_state['scenario']} - {SSP_labels[st.session_state['scenario']]}")
 
     # Load data and plot, avg. local time calculated on MacOS with an Apple M1 Pro chip and 16 GB of memory
     load_data_replot()
-    st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run on Streamlit Cloud. Average time to run locally, 0.4 seconds.")
+    st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run on Streamlit Cloud. Average time to run locally, ~0.4 seconds; local timing calculated on MacOS with an Apple M1 Pro Chip and 16 GB of memory.")
     st.session_state['axs1'].coastlines()
 
     st.write("""
