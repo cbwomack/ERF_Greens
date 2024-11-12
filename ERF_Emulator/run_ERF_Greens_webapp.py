@@ -20,8 +20,14 @@ import streamlitutils
 from matplotlib.lines import Line2D
 from streamlitutils import brewer2_light
 import time
+import path
+import sys
 
-with open('Convolution Inputs/A.pickle', 'rb') as f:
+dir = path.Path(__file__).abspath()
+sys.path.append(dir.parent.parent)
+
+A_path = 'Convolution Inputs/A.pickle'
+with open(A_path, 'rb') as f:
     A = pkl.load(f)
 
 def load_data_replot():
