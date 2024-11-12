@@ -6,7 +6,7 @@ Call via
 $ conda activate gchp
 $ streamlit run run_ERF_Greens_webapp.py
 """
-
+import pickle as pkl
 import pandas as pd
 from pathlib import Path
 import numpy as np
@@ -16,12 +16,13 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import matplotlib.colors as colors
 import xarray as xr
-import ERFutils
+import streamlitutils
 from matplotlib.lines import Line2D
-from ERFutils import brewer2_light
+from streamlitutils import brewer2_light
 import time
 
-A = ERFutils.A
+with open('Convolution Inputs/A.pickle', 'rb') as f:
+    A = pkl.load(f)
 
 def load_data_replot():
 
@@ -44,7 +45,7 @@ def load_data_replot():
 
         # Convolve to get temperature projection
         st.session_state['start_time'] = time.time()
-        st.session_state['conv_ds'] = ERFutils.convolve_exp_meanGF(st.session_state['G_ds'], st.session_state['ERF_ds'], '1pctCO2', conv_mean = False)
+        st.session_state['conv_ds'] = streamlitutils.convolve_exp_meanGF(st.session_state['G_ds'], st.session_state['ERF_ds'], '1pctCO2', conv_mean = False)
         st.session_state['end_time'] = time.time()
         st.session_state['convolved'] = st.session_state['scenario']
 
