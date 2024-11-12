@@ -7,7 +7,7 @@ import matplotlib.colors as mcolors
 import pickle as pkl
 
 data_path = 'ERF_Emulator/Streamlit/'
-with open(f'{data_path}A.pickle, 'rb') as f:
+with open(f'{data_path}A.pickle', 'rb') as f:
     A = pkl.load(f)
 
 def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True, verbose = True):
