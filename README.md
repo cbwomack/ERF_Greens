@@ -1,6 +1,9 @@
 # Spatially Resolved Temperature Emulator
 Calculates and evaluates the performance of spatially resolved temperature response functions (Green's functions) based on mapping ERF to temperature. <a href="https://essopenarchive.org/doi/full/10.22541/essoar.172124789.98568963">Our preprint describing the methodology within this repo can be found here.</a>
 
+# Demo
+We have built a small webapp to highlight the speed and predictive accuracy of our tool, <a href="https://bc3-erf-greens.streamlit.app/">which can be found here.</a> The tool allows users to emulate spatial temperature anomalies for 4 different scenarios using our Green's function methodology. Figure 1 shows an example of the emulator's spatial outputs, while Figure 2 shows the CMIP6 ERF data used as the input to the emulator. Finally, Figure 3 illustrates the emulator's predictive skill against the CMIP6 ground truth surface temperature data. 
+
 # Usage
 ## Jupyter Notebooks and Code
 All code for training and running the emulators is written in python, specifically within the Jupyter notebooks included in this repo. This repo requires a number of packages to function properly, and the included environment file (ERF_Greens.yml) contains all necessary packages to get up and running. <a href="https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#activating-an-environment">See this tutorial for instructions on loading an environment from a .yml.</a>
