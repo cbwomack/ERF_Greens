@@ -21,6 +21,11 @@ from matplotlib.lines import Line2D
 from streamlitutils import brewer2_light
 import time
 
+import os
+contents = os.listdir()
+for item in contents:
+    print(item)
+
 A_path = 'A.pickle'
 with open(A_path, 'rb') as f:
     A = pkl.load(f)
