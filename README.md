@@ -1,5 +1,5 @@
 # Spatially Resolved Temperature Emulator
-Calculates and evaluates the performance of spatially resolved temperature response functions (Green's functions) based on mapping ERF to temperature. <a href="https://doi.org/10.5194/egusphere-egu24-18412">The EGU abstract describing the overall methodology can be found here.</a>
+Calculates and evaluates the performance of spatially resolved temperature response functions (Green's functions) based on mapping ERF to temperature. <a href="[https://doi.org/10.5194/egusphere-egu24-18412](https://essopenarchive.org/doi/full/10.22541/essoar.172124789.98568963)">Our preprint describing the methodology within this repo can be found here.</a>
 
 # Usage
 ## Jupyter Notebooks and Code
