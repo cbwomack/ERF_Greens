@@ -3,8 +3,8 @@ Webapp to host climate emulator. From anthropogenic greenhouse gases
  to surface temperature anomalies.
 
 Call via
-$ conda activate emcli
-$ streamlit run run_ERF_Greens_pocket_webapp.py
+$ conda activate gchp
+$ streamlit run run_ERF_Greens_webapp.py
 """
 
 import pickle # store and load compressed data
@@ -14,7 +14,7 @@ import numpy as np
 import streamlit as st
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
-import cartopy.crs as ccrs # plot_tas_annual_local_err_map
+import cartopy.crs as ccrs
 import matplotlib.colors as colors # plot_tas_annual_local_err_map
 import xarray as xr
 import ERFutils

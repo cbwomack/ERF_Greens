@@ -133,7 +133,7 @@ def load_regrid_ERF_set(model_set, data_id, verbose = False):
     
     return ERF
 
-def load_regrid_tas_set(model_set, data_id):
+def load_regrid_tas_set(model_set, data_id, rem_clim=True):
     """
     Loads tas for a given dataset.
     NOTE: This function is rather slow and can likely be optimized.
@@ -141,6 +141,7 @@ def load_regrid_tas_set(model_set, data_id):
     Args:
         model_set: Set of model names within the given dataset.
         data_id: ID of the dataset, e.g. 1pctCO2.
+        rem_clim: Whether to remove climatology.
         
     Returns:
         tas_ds: Dataset containing tas data.
@@ -150,8 +151,15 @@ def load_regrid_tas_set(model_set, data_id):
     min_year = 100000
     for m in model_set:     
         print(f'\t Loading {m} data...')
-        # Load tas and remove climatology
-        tas[m] = remove_climatology(data_id, m, 'tas')
+        # Load tas
+        if rem_clim:
+            # Remove climatology
+            tas[m] = remove_climatology(data_id, m, 'tas')
+        else:
+            # Keep climatology
+            temp_ds = xr.open_mfdataset(f'{path_to_cmip6_data}{data_id}/tas_Amon_{m}_{data_id}_r1i1p1f1**.nc4', use_cftime=True, chunks = 1000000)
+            temp_ds = monthly_to_annual(temp_ds).as_numpy()
+            tas[m] = temp_ds['tas'].to_dataset(name = 'tas')
 
         # Start from t = 0, such that all model times match
         if len(tas[m]['year']) < min_year:
@@ -193,7 +201,7 @@ def calc_climatology(m, var):
     Args:
         m: Model name.
         var: Variable to get climatology for.
-        
+
     Returns:
         piControl_ds: Dataset containing spatially resolved climatology data.
     """
@@ -321,9 +329,20 @@ def calc_ERF_sensitivity(ERF_ds,tas_ds,model_set,lam_dict,pct_sens):
 
 ########################### Diagnose Green's Functions and Patterns ###################################
 
-def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
+def concat_ssp_ERF(ssp_id):
+    
+    path = f'{path_to_ERF_outputs}ERF/ERF_{ssp_id}_ds.nc4'
+    path_hist = f'{path_to_ERF_outputs}ERF/ERF_historical_ds.nc4'
+    ssp_ds = xr.open_dataset(path)
+    hist_ds = xr.open_dataset (path_hist)
+
+    ds = xr.concat([hist_ds,ssp_ds.assign_coords(year = range(165,250))],dim = 'year')
+    
+    return ds
+
+def diagnose_GF(train, mean = True, plot = True, save_data = False, save_fig = False):
     """
-    Diagnoses multimodel mean GF from a given experiment. Assumes ERF and tas
+    Diagnoses GF from a given experiment. Assumes ERF and tas
     datasets are formatted properly. Smoothing parameters are tuned relative
     to the 1pctCO2 experiment.
     
@@ -334,7 +353,7 @@ def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
         save_fig: Whether or not to save the plotted GF
         
     Returns:
-        G_ds: Dataset containing multimodel mean Green's function
+        G_ds: Dataset containing Green's functions, may or may not be multi-model mean
     """
     
     # Load ERF data
@@ -342,19 +361,23 @@ def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
     ERF_path = f'{path_to_ERF_outputs}ERF/ERF_{train}_ds.nc4'
     ERF_ds = xr.open_dataset(ERF_path)
     ERF[train] = ds_to_dict(ERF_ds)
-    ERF_all = concat_multirun(ERF[train],'model').mean(dim = 'model')
-
+    
+    if mean:
+        ERF_all = concat_multirun(ERF[train],'model').mean(dim = 'model')
+    else:
+        ERF_all = concat_multirun(ERF[train],'model')
+        
     # Load tas data
     tas_path = f'{path_to_ERF_outputs}tas/tas_{train}_ds.nc4'
     tas_ds = xr.open_dataset(tas_path)
     tas_ds = tas_ds.rename({'s': 'year'})
 
     # Ensure years align
+    if 'ssp' in train: tas_ds['year'] = tas_ds['year'] - 165 
     tas_ds = tas_ds.sel(year = slice(ERF_all['year'].min(), ERF_all['year'].max()))
 
     # Organization for data smoothing
     X1 = ERF_all.year.values
-    Y1 = ERF_all.ERF.values
     X2 = tas_ds.year.values
 
     # Smoothing parameters, tuned manually for 1pctCO2 experiment
@@ -364,10 +387,72 @@ def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
     offsets = [i for i in range(0,-N_years,-1)]
     domain = np.linspace(ERF_all.year.values[j], ERF_all.year.values[-1], num=N_years)
 
-    # Stack tas to vectorize smoothing operation
-    tas_stack = tas_ds.stack(allpoints=['lat','lon']).mean(dim = ['model'])
-    tas_stack_vals = tas_stack.tas.values
+    if mean:
+        # Store ERF values for smoothing
+        Y1 = ERF_all.ERF.values
+        
+        # Stack tas to vectorize smoothing operation
+        tas_stack = tas_ds.stack(allpoints=['lat','lon']).mean(dim = ['model'])
 
+        # Solve for G
+        G_stack = calc_G(tas_stack, X1, X2, Y1, tau, N_years, offsets, domain)
+        
+        # Reformat G
+        G_ds = reformat_G(tas_ds, G_stack, N_years)
+    
+    else:
+        G_dict = {}
+        for m in model_set:
+            
+            # Store ERF values for smoothing
+            Y1 = ERF_all.ERF.sel(model = m).values
+            
+            # Stack tas to vectorize smoothing operation
+            tas_stack = tas_ds.sel(model = m).stack(allpoints=['lat','lon'])
+
+            # Solve for G
+            G_stack = calc_G(tas_stack, X1, X2, Y1, tau, N_years, offsets, domain)
+            
+            # Reformat G
+            G_dict[m] = reformat_G(tas_ds, G_stack, N_years)
+            
+        # Convert G dictionary to dataset
+        G_ds = [ds.expand_dims(model=[key]) for key, ds in G_dict.items()]
+        G_ds = xr.concat(G_ds, dim='model')
+    
+    # Plot resultant Green's function
+    if plot:
+        fig, ax = plt.subplots(figsize = [8,6])
+        if mean:
+            ax.plot(G_ds.weighted(A).mean(dim = ['lat','lon'])['G[tas]'].values, linewidth=3, color=brewer2_light(2))
+        else:
+            for i, m in enumerate(sorted(list(model_set))):
+                ax.plot(G_ds.sel(model = m).weighted(A).mean(dim = ['lat','lon'])['G[tas]'].values[0:31], linewidth=3, color=brewer2_light(i), label = m)
+            ax.plot(G_ds.mean(dim = ['model']).weighted(A).mean(dim = ['lat','lon'])['G[tas]'].values[0:31], linewidth=3, color='k', label = 'Multi-Model Mean')
+            ax.legend()
+            
+        ax.set_title(f'Global Average Green\'s Function: {train} Experiment',fontsize=20)
+        ax.tick_params(axis='both', which='major', labelsize=18)
+        ax.set_xlabel('Years Since ERF Impulse',fontsize=20)
+        ax.set_ylabel('Impulse Response [$^\circ$C/(Wm$^{-2}$)]',fontsize=20)
+        plt.grid(True)
+        fig.tight_layout()
+        
+        if save_fig:
+            if mean: plt.savefig(f'{path_to_figures}global_GF_mean_{train}.pdf', bbox_inches = 'tight', dpi = 500)
+            else: plt.savefig(f'{path_to_figures}global_GF_multi_{train}.pdf', bbox_inches = 'tight', dpi = 500)
+
+    # Save resultant Green's function
+    if save_data:
+        if mean: G_ds.to_netcdf(f'{path_to_ERF_outputs}GFs/G_{train}_mean_ds.nc4')
+        else: G_ds.to_netcdf(f'{path_to_ERF_outputs}GFs/G_{train}_multi_ds.nc4')
+    
+    return G_ds
+
+def calc_G(tas_stack, X1, X2, Y1, tau, N_years, offsets, domain):
+    
+    tas_stack_vals = tas_stack.tas.values
+    
     # Smooth ERF and tas data
     ERF_smooth = [local_weighted_regression(x0, X1, Y1, tau) for x0 in domain]
     tas_smooth = [local_weighted_regression(x0, X2, tas_stack_vals, tau) for x0 in domain]
@@ -376,8 +461,11 @@ def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
 
     # Solve for G
     G_stack = spsolve_triangular(input_matrix,tas_smooth,lower=True)
+    
+    return G_stack
 
-    # Reformat G
+def reformat_G(tas_ds, G_stack, N_years):
+    
     G_ds = xr.Dataset(coords={'lon': ('lon', tas_ds.lon.values),
                                 'lat': ('lat', tas_ds.lat.values),
                                 'year': ('year', range(N_years))})
@@ -385,25 +473,6 @@ def diagnose_mean_GF(train, plot = True, save_data = False, save_fig = False):
     G_ds['G[tas]'] = (('year','allpoints'),G_stack)
     G_ds = G_ds.unstack('allpoints')
     G_ds['year'] = G_ds['year'] - G_ds['year'][0]
-    G_ds = G_ds.weighted(A).mean(dim = ['lat','lon'])['G[tas]']
-    
-    # Plot resultant Green's function
-    if plot:
-        fig, ax = plt.subplots(figsize = [8,6])
-        ax.plot(G_ds.weighted(A).mean(dim = ['lat','lon']).values[0:31], linewidth=3, color=brewer2_light(2))
-        ax.set_title(f'Global Average Green\'s Function: 1pctCO2 Experiment',fontsize=20)
-        ax.tick_params(axis='both', which='major', labelsize=18)
-        ax.set_xlabel('Years Since ERF Impulse',fontsize=20)
-        ax.set_ylabel('Impulse Response [$^\circ$C/(Wm$^{-2}$)]',fontsize=20)
-        plt.grid(True)
-        fig.tight_layout()
-        
-        if save_fig:
-            plt.savefig(f'{path_to_figures}global_GF_{train}.pdf', bbox_inches = 'tight', dpi = 500)
-
-    # Save resultant Green's function
-    if save_data:
-        G_ds.to_netcdf(f'{path_to_ERF_outputs}G_{train}_mean_ds.nc4')
     
     return G_ds
 
@@ -519,7 +588,7 @@ def eval_GF(train_id, conv_all, plot, save_result, save_fig, verbose = True, sen
         if 'ssp' in conv_id:
             ERF_path_hist = f'{path_to_ERF_outputs}ERF/ERF_historical_ds.nc4'
             ERF_ssp = xr.open_dataset(ERF_path)
-            ERF_hist = xr.open_dataset(ERF_path_hist)
+            ERF_hist = xr.open_dataset (ERF_path_hist)
 
             ERF_ds = xr.concat([ERF_hist,ERF_ssp.assign_coords(year = range(165,250))],dim = 'year')
 
@@ -535,18 +604,18 @@ def eval_GF(train_id, conv_all, plot, save_result, save_fig, verbose = True, sen
             tas_ds = tas_ds.sel(s=slice(0,149))
 
         # Convolve ERF profile with Green's functions
-        conv_mean_ds = convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True)
-        conv_ds = convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = False)
+        conv_mean_ds = convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True, verbose = verbose)
+        conv_ds = convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = False, verbose = verbose)
         
         # For sensitivity analysis, recalculate ERF values and perform new convolutions
         if sens:
             ERF_m10_ds = calc_ERF_sensitivity(ERF_ds,tas_ds,model_set,lam_dict,-0.1)
             ERF_p10_ds = calc_ERF_sensitivity(ERF_ds,tas_ds,model_set,lam_dict,0.1)
             
-            conv_mean_m10_ds = convolve_exp_meanGF(G_ds, ERF_m10_ds, train_id, conv_mean = True)
-            conv_m10_ds = convolve_exp_meanGF(G_ds, ERF_m10_ds, train_id, conv_mean = False)
-            conv_mean_p10_ds = convolve_exp_meanGF(G_ds, ERF_p10_ds, train_id, conv_mean = True)
-            conv_p10_ds = convolve_exp_meanGF(G_ds, ERF_p10_ds, train_id, conv_mean = False) 
+            conv_mean_m10_ds = convolve_exp_meanGF(G_ds, ERF_m10_ds, train_id, conv_mean = True, verbose = verbose)
+            conv_m10_ds = convolve_exp_meanGF(G_ds, ERF_m10_ds, train_id, conv_mean = False, verbose = verbose)
+            conv_mean_p10_ds = convolve_exp_meanGF(G_ds, ERF_p10_ds, train_id, conv_mean = True, verbose = verbose)
+            conv_p10_ds = convolve_exp_meanGF(G_ds, ERF_p10_ds, train_id, conv_mean = False, verbose = verbose) 
 
         # Save convolution outputs
         if save_result:
@@ -673,7 +742,7 @@ def eval_GF(train_id, conv_all, plot, save_result, save_fig, verbose = True, sen
     else:
         return RMSE_short, RMSE_long, MAE_short, MAE_long, bias_short, bias_long, rel_bias_short, rel_bias_long
 
-def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True):
+def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True, verbose = True):
     """
     Convolves a given experiment ERF profile with a Green's function
     to get the temperature response.
@@ -683,6 +752,7 @@ def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True):
         ERF_ds: ERF dataset.
         train_id: ID indicating training dataset.
         conv_mean: Convolve with the global mean or all locations globally.
+        verbose: Whether to print the current state of the function.
         
     Returns:
         conv_ds: Dataset containing convolved temperature response.
@@ -697,13 +767,15 @@ def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True):
         
     conv = {} 
     if conv_mean:
-        print(f'Convolving mean GF for Global Mean')
+        if verbose:
+            print(f'Convolving mean GF for Global Mean')
         conv[train_id] = signal.convolve(np.array(GF.dropna(dim = 's')),
                                             np.array(ERF_ds['ERF']),'full')
         conv[train_id] = np_to_xr_mean(conv[train_id], GF, ERF_ds)
 
     else:
-        print(f'Convolving mean GF Spatially')
+        if verbose:
+            print(f'Convolving mean GF Spatially')
         conv[train_id] = signal.convolve(np.array(GF.dropna(dim = 's')), 
                                        np.array(ERF_ds['ERF'])[~np.isnan(np.array(ERF_ds['ERF']))][..., None, None],
                                        'full')
@@ -1008,6 +1080,57 @@ def plot_pattern(pattern_ds, train_id, test_id = None, tas_ds = None, plot_yr = 
             plt.savefig(f'{path_to_figures}patt_spatial_raw_{train_id}_{conv_id}_{plot_yr}.pdf', bbox_inches = 'tight', dpi = 500)
         
     return 
+
+def plot_error_heatmap(data, experiments, title, colorbar_label='', save_fig=False):
+    
+    # Round all data to #.##
+    data = np.round(data, 2)
+    
+    fig, axes = plt.subplots(1, 2, figsize=(10, 6), sharey=True)
+
+    # Set diverging color map for 'Bias' in title
+    if 'Bias' in title:
+        cmap = 'vlag'
+        vmin, vmax = -np.max(np.abs(data)), np.max(np.abs(data))  # Diverging around zero
+    else:
+        cmap = 'Reds'
+        vmin = 0
+        vmax = np.max(data)
+        
+    cbar_ax = fig.add_axes([1, 0.185, .03, .695])
+    
+    for i, ax in enumerate(axes.flat):
+        im = sns.heatmap(
+            data[i], ax=ax, vmin=vmin, vmax=vmax, annot=True,
+            cmap=cmap, linewidth=0.5, yticklabels=experiments,
+            xticklabels=experiments, annot_kws={"fontsize": 18},
+            cbar_ax=cbar_ax, cbar_kws={'label': colorbar_label}
+        )
+    
+    # Set larger tick marks on the colorbar
+    cbar = im.collections[0].colorbar
+    cbar.set_label(colorbar_label, fontsize=20)
+    cbar.ax.tick_params(labelsize=16, width=2)
+    
+    # Plot titles and labels
+    axes[0].set_title('Mid-Century Statistics', fontsize=20)
+    axes[0].set_xticklabels(axes[0].get_xticklabels(), rotation=45)
+    axes[0].set_yticklabels(axes[0].get_yticklabels(), rotation=45)
+    axes[0].tick_params(axis='both', which='major', labelsize=16)
+    
+    axes[1].set_title('End-of-Century Statistics', fontsize=20)
+    axes[1].set_xticklabels(axes[1].get_xticklabels(), rotation=45)
+    axes[1].tick_params(axis='both', which='major', labelsize=16)
+    
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    #fig.suptitle(title, fontsize=20, y=1, x=0.54)
+    fig.supxlabel('Target Scenario', fontsize=20, y=0.00, x=0.54)
+    fig.supylabel('Predictor Scenario', fontsize=20, x=0.00) 
+    
+    if save_fig:
+        plt.savefig(f'{path_to_figures}heatmap_{title}.pdf', bbox_inches='tight', dpi=350)
+    
+    return
 
 ######################## Error Metrics ###########################
 
@@ -1358,5 +1481,6 @@ brewer2_light_rgb = np.divide([(102, 194, 165),
                                (166, 216,  84),
                                (255, 217,  47),
                                (229, 196, 148),
-                               (179, 179, 179)],255)
+                               (179, 179, 179),
+                               (202, 178, 214)],255)
 brewer2_light = mcolors.ListedColormap(brewer2_light_rgb)
