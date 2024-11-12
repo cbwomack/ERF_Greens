@@ -26,7 +26,7 @@ import sys
 dir = path.Path(__file__).abspath()
 sys.path.append(dir.parent.parent)
 
-A_path = 'Convolution Inputs/A.pickle'
+A_path = 'A.pickle'
 with open(A_path, 'rb') as f:
     A = pkl.load(f)
 
@@ -35,18 +35,18 @@ def load_data_replot():
     # Only required on first run, load the Green's function dataset
     if 'G_ds' not in st.session_state:
         # Load Green's Function
-        G_ds_path = 'Convolution Inputs/G_1pctCO2.nc4'
+        G_ds_path = 'G_1pctCO2.nc4'
         st.session_state['G_ds'] = xr.open_dataset(G_ds_path)['G[tas]']
         st.session_state['G_ds'] = st.session_state['G_ds'].rename({'year':'s'})
 
     # Redo convolution each time the scenario is updated
     if 'convolved' not in st.session_state or st.session_state['convolved'] != st.session_state['scenario']:
         # Load ERF profile
-        ERF_ds_path = f'Convolution Inputs/ERF_hist_{st.session_state['scenario']}.nc4'
+        ERF_ds_path = f'ERF_hist_{st.session_state['scenario']}.nc4'
         st.session_state['ERF_ds'] = xr.open_dataset(ERF_ds_path)
 
         # Load tas profile
-        tas_ds_path = f'Convolution Inputs/tas_hist_{st.session_state['scenario']}.nc4'
+        tas_ds_path = f'tas_hist_{st.session_state['scenario']}.nc4'
         st.session_state['tas_ds'] = xr.open_dataset(tas_ds_path)
 
         # Convolve to get temperature projection

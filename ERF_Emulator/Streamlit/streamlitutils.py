@@ -11,10 +11,9 @@ import sys
 dir = path.Path(__file__).abspath()
 sys.path.append(dir.parent.parent)
 
-A_path = 'Convolution Inputs/A.pickle'
+A_path = 'A.pickle'
 with open(A_path, 'rb') as f:
     A = pkl.load(f)
-
 
 def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True, verbose = True):
     """
