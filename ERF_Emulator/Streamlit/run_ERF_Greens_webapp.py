@@ -209,9 +209,9 @@ if __name__ == "__main__":
 
     st.write(f"#### Selected Scenario: {st.session_state['scenario']}")
 
-    # Load data and plot
+    # Load data and plot, avg. local time calculated on MacOS with an Apple M1 Pro chip and 16 GB of memory
     load_data_replot()
-    st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run.")
+    st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run on Streamlit Cloud. Average time to run locally, 0.4 seconds.")
     st.session_state['axs1'].coastlines()
 
     st.write("""
