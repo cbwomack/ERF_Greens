@@ -21,13 +21,8 @@ from matplotlib.lines import Line2D
 from streamlitutils import brewer2_light
 import time
 
-import os
-contents = os.listdir()
-for item in contents:
-    print(item)
-
-A_path = 'A.pickle'
-with open(A_path, 'rb') as f:
+data_path = 'ERF_Emulator/Streamlit/'
+with open(f'{data_path}A.pickle, 'rb') as f:
     A = pkl.load(f)
 
 def load_data_replot():
@@ -35,18 +30,18 @@ def load_data_replot():
     # Only required on first run, load the Green's function dataset
     if 'G_ds' not in st.session_state:
         # Load Green's Function
-        G_ds_path = 'G_1pctCO2.nc4'
+        G_ds_path = f'{data_path}G_1pctCO2.nc4'
         st.session_state['G_ds'] = xr.open_dataset(G_ds_path)['G[tas]']
         st.session_state['G_ds'] = st.session_state['G_ds'].rename({'year':'s'})
 
     # Redo convolution each time the scenario is updated
     if 'convolved' not in st.session_state or st.session_state['convolved'] != st.session_state['scenario']:
         # Load ERF profile
-        ERF_ds_path = f'ERF_hist_{st.session_state['scenario']}.nc4'
+        ERF_ds_path = f'{data_path}ERF_hist_{st.session_state['scenario']}.nc4'
         st.session_state['ERF_ds'] = xr.open_dataset(ERF_ds_path)
 
         # Load tas profile
-        tas_ds_path = f'tas_hist_{st.session_state['scenario']}.nc4'
+        tas_ds_path = f'{data_path}tas_hist_{st.session_state['scenario']}.nc4'
         st.session_state['tas_ds'] = xr.open_dataset(tas_ds_path)
 
         # Convolve to get temperature projection
