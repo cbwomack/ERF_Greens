@@ -6,13 +6,8 @@ import pandas as pd
 import matplotlib.colors as mcolors
 import pickle as pkl
 
-import os
-contents = os.listdir()
-for item in contents:
-    print(item)
-
-A_path = 'A.pickle'
-with open(A_path, 'rb') as f:
+data_path = 'ERF_Emulator/Streamlit/'
+with open(f'{data_path}A.pickle, 'rb') as f:
     A = pkl.load(f)
 
 def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True, verbose = True):
