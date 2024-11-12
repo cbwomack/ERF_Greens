@@ -6,6 +6,11 @@ import pandas as pd
 import matplotlib.colors as mcolors
 import pickle as pkl
 
+import os
+contents = os.listdir()
+for item in contents:
+    print(item)
+
 A_path = 'A.pickle'
 with open(A_path, 'rb') as f:
     A = pkl.load(f)
