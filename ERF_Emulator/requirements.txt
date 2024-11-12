@@ -8,6 +8,7 @@ matplotlib
 numpy
 pandas
 pathlib
+pickle
 scipy
 seaborn
 streamlit
