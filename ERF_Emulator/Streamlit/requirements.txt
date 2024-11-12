@@ -5,6 +5,7 @@ cartopy
 cftime
 dask
 matplotlib
+netcdf4
 numpy
 pandas
 pathlib
