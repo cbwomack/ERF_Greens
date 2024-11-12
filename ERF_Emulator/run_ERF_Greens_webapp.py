@@ -21,8 +21,6 @@ from matplotlib.lines import Line2D
 from ERFutils import brewer2_light
 import time
 
-import os
-os.environ['ESMFMKFILE'] = '/Users/chriswomack/anaconda3/envs/research/lib/esmf.mk'
 A = ERFutils.A
 
 def load_data_replot():
