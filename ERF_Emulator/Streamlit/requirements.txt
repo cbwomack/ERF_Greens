@@ -7,7 +7,6 @@ dask
 matplotlib
 numpy
 pandas
-path
 pathlib
 scipy
 seaborn
