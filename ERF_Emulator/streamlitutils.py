@@ -5,9 +5,16 @@ import xarray as xr
 import pandas as pd
 import matplotlib.colors as mcolors
 import pickle as pkl
+import path
+import sys
 
-with open('Convolution Inputs/A.pickle', 'rb') as f:
+dir = path.Path(__file__).abspath()
+sys.path.append(dir.parent.parent)
+
+A_path = 'Convolution Inputs/A.pickle'
+with open(A_path, 'rb') as f:
     A = pkl.load(f)
+
 
 def convolve_exp_meanGF(G_ds, ERF_ds, train_id, conv_mean = True, verbose = True):
     """
