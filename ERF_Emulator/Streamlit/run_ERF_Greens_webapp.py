@@ -22,7 +22,7 @@ from streamlitutils import brewer2_light
 import time
 
 data_path = 'ERF_Emulator/Streamlit/'
-with open(f'{data_path}A.pickle, 'rb') as f:
+with open(f'{data_path}A.pickle', 'rb') as f:
     A = pkl.load(f)
 
 def load_data_replot():
