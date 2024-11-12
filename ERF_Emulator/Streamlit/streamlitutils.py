@@ -5,11 +5,6 @@ import xarray as xr
 import pandas as pd
 import matplotlib.colors as mcolors
 import pickle as pkl
-import path
-import sys
-
-dir = path.Path(__file__).abspath()
-sys.path.append(dir.parent.parent)
 
 A_path = 'A.pickle'
 with open(A_path, 'rb') as f:
