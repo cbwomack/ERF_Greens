@@ -77,7 +77,7 @@ def load_data_replot():
             cb.set_label('$\Delta T$ [$\degree$C]', fontsize = 20)
             cb.ax.tick_params(labelsize=16)
 
-    # Update title to reflect current year and get new data to plot
+    # Update title to reflect selected year and get new data to plot
     st.session_state['axs1'].set_title(f'Temperature Change Relative to 1850 in {st.session_state['year']} ($\pm {10}$ years)', fontsize = 16)
     st.session_state['data'] = st.session_state['conv_ds'].mean(dim = 'train_id').sel(s = slice(st.session_state['year'] - 1850 - 10, st.session_state['year'] - 1850 + 10)).mean(dim = 's')
     st.session_state['im'].set_array(st.session_state['data'].values.ravel())
@@ -100,7 +100,7 @@ def load_data_replot():
 
     legend_elements = [Line2D([0], [0], color=brewer2_light(0), lw=3, label='Ensemble Member'),
                    Line2D([0], [0], color='k', lw=3, label='Ensemble Mean'),
-                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Current Year')]
+                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Selected Year')]
 
     st.session_state['axs2'].legend(handles=legend_elements,fontsize=14)
     st.session_state['axs2'].set_xlabel('Year', fontsize = 20)
@@ -138,7 +138,7 @@ def load_data_replot():
     legend_elements = [Line2D([0], [0], color=brewer2_light(0), lw=3, label='Ensemble Member'),
                    Line2D([0], [0], color='k', lw=3, label='Ensemble Mean'),
                    Line2D([0], [0], color=brewer2_light(1), ls='-.', lw=3, label='Emulated Ensemble Mean'),
-                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Current Year')]
+                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Selected Year')]
 
     st.session_state['axs3'].legend(handles=legend_elements,fontsize=14)
     st.session_state['axs3'].set_xlabel('Year', fontsize = 20)
