@@ -1,13 +1,12 @@
 """
-Webapp to host climate emulator. From anthropogenic greenhouse gases
- to surface temperature anomalies.
+Webapp to host climate emulator. Maps from ERF to surface temperature anomalies.
+Outline for webapp courtesy of Bjorn Lutjens (https://github.com/blutjens/)
 
 Call via
 $ conda activate gchp
 $ streamlit run run_ERF_Greens_webapp.py
 """
 
-import pickle # store and load compressed data
 import pandas as pd
 from pathlib import Path
 import numpy as np
@@ -15,7 +14,7 @@ import streamlit as st
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
-import matplotlib.colors as colors # plot_tas_annual_local_err_map
+import matplotlib.colors as colors
 import xarray as xr
 import ERFutils
 from matplotlib.lines import Line2D
@@ -169,11 +168,15 @@ if __name__ == "__main__":
     # Main function, which is run for every change on the webpage
 
     st.write("""
-    # BC3: ERF -> Temperature
+    ## Effective Radiative Forcing (ERF) to Surface Temperature Anomaly Emulator
+    """)
+
+    st.write("""
+    This app provides a demo of a response function-based climate emulator which maps from ERF to surface temperature anomalies. Technical details for this emulator can be found at https://github.com/cbwomack/ERF_Greens/.
     """)
 
     st.write(f"""
-    ##### Select year for temperature projection:
+    #### Select year for temperature projection:
     """)
 
     # Create a slider to retrieve input year selection
@@ -204,14 +207,35 @@ if __name__ == "__main__":
         if st.button("SSP585", on_click=clicked, args=[4]):
             st.session_state['scenario'] = 'SSP585'
 
-    st.write(f"##### Selected Scenario: {st.session_state['scenario']}")
+    st.write(f"#### Selected Scenario: {st.session_state['scenario']}")
 
     # Load data and plot
     load_data_replot()
     st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run.")
-
-
     st.session_state['axs1'].coastlines()
+
+    st.write("""
+    #### Figure 1: Emulated surface temperature anomalies in user-selected year.
+    Anomalies are shown relative to the pre-industrial control (1850 temperatures). The colorscale ranges from light to dark to indiciate low and high levels of warming, respectively. The colorbar is kept consistent across scenarios.
+    """)
     st.pyplot(st.session_state['fig1'])
+
+    st.write("""
+    #### Figure 2: ERF time series data for scenario of interest.
+    Outputs from individual CMIP6 models, the CMIP6 ensemble mean, and user-selected year are depicted as thin teal lines, a thick black line, and red dot, respectively.
+    """)
     st.pyplot(st.session_state['fig2'])
+
+    st.write("""
+    #### Figure 3: Global mean temperature time series data for scenario of interest.
+    Outputs from individual CMIP6 models, the CMIP6 ensemble mean, the emulated ensemble mean, and user-selected year are depicted as thin teal lines, a thick black line, a dot-dash orange line, and red dot, respectively.
+    """)
     st.pyplot(st.session_state['fig3'])
+
+    st.write("""
+    ERF and ground-truth temperature data are taken from the CMIP6 archive, and details of the model-ensemble used in this work can be found at https://github.com/cbwomack/ERF_Greens/.
+    """)
+
+    st.write("""
+    ##### This research was part of the Bringing Computation to the Climate Challenge (BC3) project and supported by Schmidt Sciences through the MIT Climate Grand Challenges.
+    """)
