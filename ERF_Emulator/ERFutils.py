@@ -371,7 +371,7 @@ def diagnose_GF(train, mean = True, plot = True, save_data = False, save_fig = F
     tas_path = f'{path_to_ERF_outputs}tas/tas_{train}_ds.nc4'
     tas_ds = xr.open_dataset(tas_path)
     tas_ds = tas_ds.rename({'s': 'year'})
-
+    
     # Ensure years align
     if 'ssp' in train: tas_ds['year'] = tas_ds['year'] - 165 
     tas_ds = tas_ds.sel(year = slice(ERF_all['year'].min(), ERF_all['year'].max()))
@@ -380,9 +380,9 @@ def diagnose_GF(train, mean = True, plot = True, save_data = False, save_fig = F
     X1 = ERF_all.year.values
     X2 = tas_ds.year.values
 
-    # Smoothing parameters, tuned manually for 1pctCO2 experiment
-    tau = 20
-    j = 4
+    # Smoothing parameters
+    #tau, j = 20, 4 # Tuned for 1pctCO2
+    tau, j = 20, 6 # tuned for individual models
     N_years = len(ERF_all['year']) - j
     offsets = [i for i in range(0,-N_years,-1)]
     domain = np.linspace(ERF_all.year.values[j], ERF_all.year.values[-1], num=N_years)
