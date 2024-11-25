@@ -6,7 +6,7 @@ Call via
 $ conda activate gchp
 $ streamlit run run_ERF_Greens_webapp.py
 """
-
+import pickle as pkl
 import pandas as pd
 from pathlib import Path
 import numpy as np
@@ -16,37 +16,42 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import matplotlib.colors as colors
 import xarray as xr
-import ERFutils
+import streamlitutils
 from matplotlib.lines import Line2D
-from ERFutils import brewer2_light
+from streamlitutils import brewer2_light
 import time
 
-import os
-os.environ['ESMFMKFILE'] = '/Users/chriswomack/anaconda3/envs/research/lib/esmf.mk'
-A = ERFutils.A
+data_path = 'ERF_Emulator/Streamlit/'
+with open(f'{data_path}A.pickle', 'rb') as f:
+    A = pkl.load(f)
+
+SSP_labels = {'SSP126':'Sustainability',
+              'SSP245':'Middle of the Road',
+              'SSP370':'Regional Rivalry',
+              'SSP585':'Fossil-fueled Development'}
 
 def load_data_replot():
 
     # Only required on first run, load the Green's function dataset
     if 'G_ds' not in st.session_state:
         # Load Green's Function
-        G_ds_path = 'Convolution Inputs/G_1pctCO2.nc4'
+        G_ds_path = f'{data_path}G_1pctCO2.nc4'
         st.session_state['G_ds'] = xr.open_dataset(G_ds_path)['G[tas]']
         st.session_state['G_ds'] = st.session_state['G_ds'].rename({'year':'s'})
 
     # Redo convolution each time the scenario is updated
     if 'convolved' not in st.session_state or st.session_state['convolved'] != st.session_state['scenario']:
         # Load ERF profile
-        ERF_ds_path = f'Convolution Inputs/ERF_hist_{st.session_state['scenario']}.nc4'
+        ERF_ds_path = f'{data_path}ERF_hist_{st.session_state['scenario']}.nc4'
         st.session_state['ERF_ds'] = xr.open_dataset(ERF_ds_path)
 
         # Load tas profile
-        tas_ds_path = f'Convolution Inputs/tas_hist_{st.session_state['scenario']}.nc4'
+        tas_ds_path = f'{data_path}tas_hist_{st.session_state['scenario']}.nc4'
         st.session_state['tas_ds'] = xr.open_dataset(tas_ds_path)
 
         # Convolve to get temperature projection
         st.session_state['start_time'] = time.time()
-        st.session_state['conv_ds'] = ERFutils.convolve_exp_meanGF(st.session_state['G_ds'], st.session_state['ERF_ds'], '1pctCO2', conv_mean = False)
+        st.session_state['conv_ds'] = streamlitutils.convolve_exp_meanGF(st.session_state['G_ds'], st.session_state['ERF_ds'], '1pctCO2', conv_mean = False)
         st.session_state['end_time'] = time.time()
         st.session_state['convolved'] = st.session_state['scenario']
 
@@ -77,7 +82,7 @@ def load_data_replot():
             cb.set_label('$\Delta T$ [$\degree$C]', fontsize = 20)
             cb.ax.tick_params(labelsize=16)
 
-    # Update title to reflect current year and get new data to plot
+    # Update title to reflect selected year and get new data to plot
     st.session_state['axs1'].set_title(f'Temperature Change Relative to 1850 in {st.session_state['year']} ($\pm {10}$ years)', fontsize = 16)
     st.session_state['data'] = st.session_state['conv_ds'].mean(dim = 'train_id').sel(s = slice(st.session_state['year'] - 1850 - 10, st.session_state['year'] - 1850 + 10)).mean(dim = 's')
     st.session_state['im'].set_array(st.session_state['data'].values.ravel())
@@ -100,7 +105,7 @@ def load_data_replot():
 
     legend_elements = [Line2D([0], [0], color=brewer2_light(0), lw=3, label='Ensemble Member'),
                    Line2D([0], [0], color='k', lw=3, label='Ensemble Mean'),
-                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Current Year')]
+                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Selected Year')]
 
     st.session_state['axs2'].legend(handles=legend_elements,fontsize=14)
     st.session_state['axs2'].set_xlabel('Year', fontsize = 20)
@@ -138,7 +143,7 @@ def load_data_replot():
     legend_elements = [Line2D([0], [0], color=brewer2_light(0), lw=3, label='Ensemble Member'),
                    Line2D([0], [0], color='k', lw=3, label='Ensemble Mean'),
                    Line2D([0], [0], color=brewer2_light(1), ls='-.', lw=3, label='Emulated Ensemble Mean'),
-                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Current Year')]
+                   Line2D([], [], marker='.', color='r', markersize=15,linestyle='None',label='Selected Year')]
 
     st.session_state['axs3'].legend(handles=legend_elements,fontsize=14)
     st.session_state['axs3'].set_xlabel('Year', fontsize = 20)
@@ -176,7 +181,8 @@ if __name__ == "__main__":
     """)
 
     st.write(f"""
-    #### Select year for temperature projection:
+    #### Select year and scenario for temperature projection:
+    Scenarios are ordered by increasing end-of-century warming and descriptions of each scenario can be found at https://en.wikipedia.org/wiki/Shared_Socioeconomic_Pathways. 
     """)
 
     # Create a slider to retrieve input year selection
@@ -207,11 +213,11 @@ if __name__ == "__main__":
         if st.button("SSP585", on_click=clicked, args=[4]):
             st.session_state['scenario'] = 'SSP585'
 
-    st.write(f"#### Selected Scenario: {st.session_state['scenario']}")
+    st.write(f"#### Selected Scenario: {st.session_state['scenario']} - {SSP_labels[st.session_state['scenario']]}")
 
-    # Load data and plot
+    # Load data and plot, avg. local time calculated on MacOS with an Apple M1 Pro chip and 16 GB of memory
     load_data_replot()
-    st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run.")
+    st.write(f"Convolution required {np.round(st.session_state['end_time'] - st.session_state['start_time'],4)} seconds to run on Streamlit Cloud. Average time to run locally, ~0.4 seconds; local timing calculated on MacOS with an Apple M1 Pro Chip and 16 GB of memory.")
     st.session_state['axs1'].coastlines()
 
     st.write("""

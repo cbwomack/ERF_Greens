@@ -19,7 +19,7 @@ def convert_and_round(lat, lon, lat_values, lon_values):
 def load_conv_data():
 
   # Import ERF datasets
-  path_to_hist = 'Convolution Inputs/ERF_hist_En-ROADS.nc4'
+  path_to_hist = ' Streamlit/ERF_hist_En-ROADS.nc4'
   ERF_hist_ds = xr.open_dataset(path_to_hist)
   ERF_hist = ERF_hist_ds.ERF.values
 

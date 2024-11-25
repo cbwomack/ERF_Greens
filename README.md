@@ -1,5 +1,8 @@
 # Spatially Resolved Temperature Emulator
-Calculates and evaluates the performance of spatially resolved temperature response functions (Green's functions) based on mapping ERF to temperature. <a href="https://doi.org/10.5194/egusphere-egu24-18412">The EGU abstract describing the overall methodology can be found here.</a>
+Calculates and evaluates the performance of spatially resolved temperature response functions (Green's functions) based on mapping ERF to temperature. <a href="https://essopenarchive.org/doi/full/10.22541/essoar.172124789.98568963">Our preprint describing the methodology within this repo can be found here.</a>
+
+# Demo
+We have built a small webapp to highlight the speed and predictive accuracy of our tool, <a href="https://bc3-erf-greens.streamlit.app/">which can be found here.</a> The tool allows users to emulate spatial temperature anomalies for 4 different scenarios using our Green's function methodology. Figure 1 shows an example of the emulator's spatial outputs, while Figure 2 shows the CMIP6 ERF data used as the input to the emulator. Finally, Figure 3 illustrates the emulator's predictive skill against the CMIP6 ground truth surface temperature data. 
 
 # Usage
 ## Jupyter Notebooks and Code

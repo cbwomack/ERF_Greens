@@ -1,0 +1,16 @@
+# Status 11/24: tested on MacOS Monterey 12.3
+## This file is used to load dependencies for streamlit
+
+cartopy
+cftime
+dask
+matplotlib
+netcdf4
+numpy
+pandas
+pathlib
+scipy
+seaborn
+streamlit
+xarray
+xarrayutils
