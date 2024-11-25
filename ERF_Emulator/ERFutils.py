@@ -1124,8 +1124,8 @@ def plot_error_heatmap(data, experiments, title, colorbar_label='', save_fig=Fal
     
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
     #fig.suptitle(title, fontsize=20, y=1, x=0.54)
-    fig.supxlabel('Target Scenario', fontsize=20, y=0.00, x=0.54)
-    fig.supylabel('Predictor Scenario', fontsize=20, x=0.00) 
+    fig.supxlabel('Predictor Scenario', fontsize=20, y=0.00, x=0.54)
+    fig.supylabel('Target Scenario', fontsize=20, x=0.00) 
     
     if save_fig:
         plt.savefig(f'{path_to_figures}heatmap_{title}.pdf', bbox_inches='tight', dpi=350)
